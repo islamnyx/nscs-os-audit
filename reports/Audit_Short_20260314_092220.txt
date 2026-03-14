@@ -1,0 +1,10 @@
+------------------------------------------
+ NSCS SYSTEM AUDIT - Short REPORT
+ Date: 2026-03-14 09:22:20
+ Host: kali
+------------------------------------------
+[SUMMARY]
+/home/kali/nscs_os_project/reports/hardware_report_20260314_092143.json:  cpu: Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz
+/home/kali/nscs_os_project/reports/hardware_report_20260314_092143.json:  ram_total: 1.9Gi
+/home/kali/nscs_os_project/reports/software_report_20260314_092217.json:  os_name: Kali GNU/Linux Rolling
+/home/kali/nscs_os_project/reports/software_report_20260314_092217.json:  kernel: 6.16.8+kali-amd64

@@ -23,11 +23,12 @@ MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Directories
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULES_DIR="$SCRIPT_DIR/modules"
-LOG_DIR="${LOG_DIR:-/var/log/sys_audit}"
+# This points directly to the folder you requested
+LOG_DIR="$HOME/nscs_os_project"
 REPORT_DIR="$LOG_DIR/reports"
-
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
@@ -109,33 +110,18 @@ show_main_menu() {
     print_header
     
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}Main Menu - Select an Audit Module${NC}"
+    echo -e "${YELLOW}           SYSTEM AUDIT PROJECT - MAIN MENU${NC}"
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "${GREEN}Phase 1: Hardware & Software Audit${NC}"
-    echo -e "  ${MAGENTA}1)${NC} Hardware Audit Module        (Collect hardware information)"
-    echo -e "  ${MAGENTA}2)${NC} Software Audit Module        (Collect OS/software information)"
+    echo -e "  ${MAGENTA}1)${NC} Hardware Audit Module      (Phase 1)"
+    echo -e "  ${MAGENTA}2)${NC} Software Audit Module      (Phase 1)"
+    echo -e "  ${MAGENTA}3)${NC} Generate Formatted Reports (Phase 2)"
+    echo -e "  ${MAGENTA}4)${NC} Send Reports via Email     (Phase 3)"
+    echo -e "  ${MAGENTA}5)${NC} Setup Automation (Cron)    (Phase 4)"
+    echo -e "  ${MAGENTA}6)${NC} Remote System Monitoring   (Phase 5)"
     echo ""
-    echo -e "${GREEN}Phase 2: Report Generation${NC}"
-    echo -e "  ${MAGENTA}3)${NC} Generate Reports             (Create formatted reports)"
-    echo ""
-    echo -e "${GREEN}Phase 3: Communication${NC}"
-    echo -e "  ${MAGENTA}4)${NC} Send Reports via Email       (Email report delivery)"
-    echo ""
-    echo -e "${GREEN}Phase 4: Automation${NC}"
-    echo -e "  ${MAGENTA}5)${NC} Setup Cron Jobs              (Schedule automatic audits)"
-    echo ""
-    echo -e "${GREEN}Phase 5: Remote Monitoring${NC}"
-    echo -e "  ${MAGENTA}6)${NC} Remote Monitoring             (Monitor remote systems)"
-    echo ""
-    echo -e "${GREEN}System Administration${NC}"
-    echo -e "  ${MAGENTA}7)${NC} View Audit Logs              (Check system logs)"
-    echo -e "  ${MAGENTA}8)${NC} View Generated Reports       (Browse reports)"
-    echo -e "  ${MAGENTA}9)${NC} System Status                (Check audit system status)"
-    echo ""
-    echo -e "${GREEN}Utilities${NC}"
-    echo -e "  ${MAGENTA}10)${NC} Help & Documentation        (Project documentation)"
-    echo -e "  ${MAGENTA}0)${NC} Exit                         (Quit the program)"
+    echo -e "  ${MAGENTA}10)${NC} Help & Documentation"
+    echo -e "  ${MAGENTA}0)${NC} Exit"
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
 }
@@ -161,118 +147,71 @@ run_hardware_audit() {
 }
 
 run_software_audit() {
-    print_info "Software Audit Module (Coming Soon - Phase 2)"
-    echo ""
-    print_warning "This module is not yet implemented."
-    print_info "Development timeline: March 10-14, 2026"
-    echo ""
-    echo "The software audit module will collect:"
-    echo "  • OS name and version"
-    echo "  • Kernel version"
-    echo "  • Installed packages"
-    echo "  • Running services"
-    echo "  • Active processes"
-    echo "  • Open ports"
-    echo "  • Logged-in users"
+    print_info "Starting Software Audit Module..."
     echo ""
     
-    read -p "Press Enter to return to main menu..."
-}
-
-generate_reports() {
-    print_info "Report Generation Module (Coming Soon - Phase 3)"
-    echo ""
-    print_warning "This module is not yet implemented."
-    print_info "Development timeline: March 17-21, 2026"
-    echo ""
-    echo "The report generation module will:"
-    echo "  • Create short reports (summary view)"
-    echo "  • Create full reports (detailed audit)"
-    echo "  • Support multiple formats: .txt, .html, .pdf, .json"
-    echo "  • Add professional formatting and styling"
-    echo ""
-    
-    read -p "Press Enter to return to main menu..."
-}
-
-send_email_reports() {
-    print_info "Email Transmission Module (Coming Soon - Phase 4)"
-    echo ""
-    print_warning "This module is not yet implemented."
-    print_info "Development timeline: March 24-28, 2026"
-    echo ""
-    echo "The email module will:"
-    echo "  • Send reports to specified email address"
-    echo "  • Support SMTP configuration"
-    echo "  • Allow recipient customization"
-    echo "  • Support short/full report selection"
-    echo ""
-    
-    read -p "Press Enter to return to main menu..."
-}
-
-setup_cron_jobs() {
-    print_info "Cron Automation Module (Coming Soon - Phase 5)"
-    echo ""
-    print_warning "This module is not yet implemented."
-    print_info "Development timeline: March 24-28, 2026"
-    echo ""
-    echo "The cron module will:"
-    echo "  • Schedule automatic audits (e.g., daily at 4:00 AM)"
-    echo "  • Manage cron job configuration"
-    echo "  • Handle execution logging"
-    echo "  • Support log rotation"
-    echo ""
-    
-    read -p "Press Enter to return to main menu..."
-}
-
-setup_remote_monitoring() {
-    print_info "Remote Monitoring Module (Coming Soon - Phase 6)"
-    echo ""
-    print_warning "This module is not yet implemented."
-    print_info "Development timeline: March 29-30, 2026"
-    echo ""
-    echo "The remote monitoring module will:"
-    echo "  • Enable SSH-based remote monitoring"
-    echo "  • Support real-time or periodic monitoring"
-    echo "  • Centralize reports from multiple machines"
-    echo "  • Ensure secure remote access practices"
-    echo ""
-    
-    read -p "Press Enter to return to main menu..."
-}
-
-view_audit_logs() {
-    clear_screen
-    print_header
-    
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}Audit Logs${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-    echo ""
-    
-    if [ ! -d "$LOG_DIR" ]; then
-        print_warning "Log directory not found: $LOG_DIR"
+    # Check for the filename we just created
+    if check_module "audit_software.sh"; then
+        "$MODULES_DIR/audit_software.sh"
+        print_success "Software audit completed"
     else
-        echo -e "${BLUE}Logs in: $LOG_DIR${NC}"
-        echo ""
-        
-        if [ -f "$LOG_DIR/hardware_audit.log" ]; then
-            echo -e "${GREEN}Recent Hardware Audit Logs:${NC}"
-            tail -20 "$LOG_DIR/hardware_audit.log"
-        else
-            print_warning "No hardware audit logs found yet"
-        fi
-        
-        echo ""
-        echo -e "${BLUE}Available log files:${NC}"
-        ls -lh "$LOG_DIR"/*.log 2>/dev/null || print_info "No log files yet"
+        print_error "Failed to run software audit module"
+        return 1
     fi
     
     echo ""
     read -p "Press Enter to return to main menu..."
 }
+
+generate_reports() {
+    print_info "Starting Report Generation System..."
+    echo ""
+    
+    # Check if the module exists and run it
+    if check_module "generate_reports.sh"; then
+        "$MODULES_DIR/generate_reports.sh"
+        print_success "Reports generated successfully in $REPORT_DIR"
+    else
+        print_error "Reporting module not found."
+    fi
+    
+    echo ""
+    read -p "Press Enter to return to main menu..."
+}
+
+send_email_reports() {
+    print_info "Starting Email Transmission..."
+    if check_module "send_reports.sh"; then
+        "$MODULES_DIR/send_reports.sh"
+    else
+        print_error "Email module not found."
+    fi
+    read -p "Press Enter to return to main menu..."
+}
+
+setup_cron_jobs() {
+    if check_module "setup_cron.sh"; then
+        "$MODULES_DIR/setup_cron.sh"
+    fi
+    read -p "Press Enter to return to main menu..."
+}
+
+# Phase 5: Remote Monitoring Function
+setup_remote_monitoring() {
+    print_info "Starting Remote System Monitoring..."
+    
+    # Check if the module exists and run it
+    if check_module "remote_monitor.sh"; then
+        "$MODULES_DIR/remote_monitor.sh"
+    else
+        print_error "Remote monitoring module not found."
+    fi
+    
+    echo ""
+    read -p "Press Enter to return to main menu..."
+}
+
+
 
 view_reports() {
     clear_screen
@@ -308,66 +247,6 @@ view_reports() {
             print_info "Run: Hardware Audit Module (option 1) to generate reports"
         fi
     fi
-    
-    echo ""
-    read -p "Press Enter to return to main menu..."
-}
-
-system_status() {
-    clear_screen
-    print_header
-    
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}System Status${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
-    echo ""
-    
-    # Check directories
-    echo -e "${BLUE}Directory Status:${NC}"
-    
-    if [ -d "$MODULES_DIR" ]; then
-        print_success "Modules directory found: $MODULES_DIR"
-        echo "  Available modules:"
-        ls -1 "$MODULES_DIR"/*.sh 2>/dev/null | while read -r module; do
-            if [ -x "$module" ]; then
-                echo "    ✓ $(basename "$module")"
-            else
-                echo "    ✗ $(basename "$module") (not executable)"
-            fi
-        done
-    else
-        print_error "Modules directory not found: $MODULES_DIR"
-    fi
-    
-    echo ""
-    
-    if [ -d "$LOG_DIR" ]; then
-        print_success "Log directory found: $LOG_DIR"
-        echo "  Size: $(du -sh "$LOG_DIR" 2>/dev/null | cut -f1)"
-    else
-        print_warning "Log directory not found: $LOG_DIR"
-    fi
-    
-    echo ""
-    
-    if [ -d "$REPORT_DIR" ]; then
-        print_success "Reports directory found: $REPORT_DIR"
-        # BUGFIX: Use proper globbing to count reports
-        report_count=$(compgen -G "$REPORT_DIR/*.json" 2>/dev/null | wc -l)
-        echo "  Reports generated: $report_count"
-    else
-        print_warning "Reports directory not found: $REPORT_DIR"
-    fi
-    
-    echo ""
-    
-    # System info
-    echo -e "${BLUE}System Information:${NC}"
-    echo "  Hostname: $(hostname)"
-    echo "  OS: $(uname -s)"
-    echo "  Kernel: $(uname -r)"
-    echo "  CPU: $(nproc) cores"
-    echo "  Uptime: $(uptime | sed 's/.*up //' | sed 's/,.*//')"
     
     echo ""
     read -p "Press Enter to return to main menu..."
@@ -439,15 +318,6 @@ main() {
             6)
                 clear_screen
                 setup_remote_monitoring
-                ;;
-            7)
-                view_audit_logs
-                ;;
-            8)
-                view_reports
-                ;;
-            9)
-                system_status
                 ;;
             10)
                 show_help
