@@ -1,0 +1,111 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><title>NSCS Short Report — kali</title>
+
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap");
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:#000;color:#00ff41;font-family:"Share Tech Mono",monospace;padding:24px;}
+  canvas#rain{position:fixed;top:0;left:0;width:100%;height:100%;opacity:.10;pointer-events:none;z-index:0;}
+  .wrap{position:relative;z-index:1;max-width:960px;margin:0 auto;}
+  .topbar{border:1px solid #005512;padding:16px 24px;margin-bottom:20px;background:rgba(0,20,0,.7);}
+  .topbar h1{font-family:"Orbitron",monospace;font-size:1.1rem;color:#00ff41;letter-spacing:3px;text-shadow:0 0 10px #00ff41;}
+  .topbar .meta{font-size:.75rem;color:#005512;margin-top:6px;line-height:1.8;}
+  .topbar .meta span{color:#00cc33;}
+  .section{border:1px solid #003a0a;margin-bottom:16px;background:rgba(0,15,0,.6);}
+  .section-header{background:#030f03;border-bottom:1px solid #003a0a;padding:10px 16px;display:flex;align-items:center;gap:10px;}
+  .section-header .num{font-family:"Orbitron",monospace;font-size:.75rem;color:#000;background:#00ff41;padding:2px 8px;}
+  .section-header h2{font-size:.85rem;color:#00cc33;letter-spacing:2px;text-transform:uppercase;}
+  .section-body{padding:16px;}
+  table{width:100%;border-collapse:collapse;font-size:.8rem;}
+  th{background:#010f01;color:#005512;text-align:left;padding:8px 12px;border-bottom:1px solid #003a0a;letter-spacing:1px;font-size:.72rem;}
+  td{padding:8px 12px;border-bottom:1px solid #011501;color:#00cc33;}
+  td.key{color:#005512;width:36%;}
+  td.val{color:#00ff41;}
+  td.warn{color:#ffcc00;}
+  td.ok{color:#00ff41;}
+  .badge{display:inline-block;padding:2px 10px;font-size:.7rem;border:1px solid;}
+  .badge.ok{border-color:#00ff41;color:#00ff41;}
+  .badge.warn{border-color:#ffcc00;color:#ffcc00;}
+  .badge.err{border-color:#ff3333;color:#ff3333;}
+  .rambar{height:8px;background:#001500;margin:4px 0;position:relative;}
+  .rambar-fill{height:100%;background:linear-gradient(90deg,#003a0a,#00ff41);}
+  .footer{text-align:center;font-size:.7rem;color:#003a0a;margin-top:20px;padding:10px;border-top:1px solid #003a0a;}
+  .scanline{position:fixed;top:0;left:0;right:0;bottom:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,65,.012) 2px,rgba(0,255,65,.012) 4px);pointer-events:none;z-index:2;}
+</style>
+<script>
+window.onload=function(){
+  var c=document.getElementById("rain"),ctx=c.getContext("2d");
+  c.width=window.innerWidth;c.height=window.innerHeight;
+  var cols=Math.floor(c.width/14),drops=[];
+  for(var i=0;i<cols;i++)drops[i]=1;
+  var chars="ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ0123456789ABCDEF";
+  setInterval(function(){
+    ctx.fillStyle="rgba(0,0,0,0.05)";ctx.fillRect(0,0,c.width,c.height);
+    ctx.fillStyle="#00ff41";ctx.font="12px monospace";
+    for(var i=0;i<drops.length;i++){
+      var t=chars[Math.floor(Math.random()*chars.length)];
+      ctx.fillText(t,i*14,drops[i]*14);
+      if(drops[i]*14>c.height&&Math.random()>0.975)drops[i]=0;
+      drops[i]++;
+    }
+  },55);
+};
+</script>
+</head><body>
+<canvas id="rain"></canvas><div class="scanline"></div>
+<div class="wrap">
+  <div class="topbar">
+    <h1>[ NSCS ] SHORT AUDIT REPORT</h1>
+    <div class="meta">
+      <span>HOST:</span> kali &nbsp;|&nbsp;
+      <span>GENERATED:</span> Monday 16 March 2026  17:53:27 &nbsp;|&nbsp;
+      <span>TYPE:</span> Summary View
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><span class="num">01</span><h2>Hardware Overview</h2></div>
+    <div class="section-body">
+      <table>
+        <tr><th>COMPONENT</th><th>VALUE</th></tr>
+        <tr><td class="key">CPU Model</td><td class="val">Intel(R)Core(TM)i5-8250UCPU@1.60GHz</td></tr>
+        <tr><td class="key">CPU Cores</td><td class="val">2</td></tr>
+        <tr><td class="key">GPU</td><td class="val">VMwareSVGAIIAdapter</td></tr>
+        <tr><td class="key">RAM Total</td><td class="val">1.9Gi</td></tr>
+        <tr><td class="key">RAM Usage</td><td class="val">
+          74%
+          <div class="rambar"><div class="rambar-fill" style="width:74%"></div></div>
+        </td></tr>
+        <tr><td class="key">Firmware</td><td class="val">LegacyBIOS</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><span class="num">02</span><h2>Software & OS</h2></div>
+    <div class="section-body">
+      <table>
+        <tr><th>ITEM</th><th>VALUE</th></tr>
+        <tr><td class="key">OS</td><td class="val">KaliGNU/LinuxRolling</td></tr>
+        <tr><td class="key">Kernel</td><td class="val">Linux6.16.8+kali-amd64</td></tr>
+        <tr><td class="key">Uptime</td><td class="val">up1hour,9minutes</td></tr>
+        <tr><td class="key">Packages</td><td class="val">2880</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><span class="num">03</span><h2>Security Snapshot</h2></div>
+    <div class="section-body">
+      <table>
+        <tr><th>CHECK</th><th>STATUS</th></tr>
+        <tr><td class="key">Current User</td><td class="val">kali</td></tr>
+        <tr><td class="key">Sudo Admins</td><td class="warn">kali</td></tr>
+        <tr><td class="key">Root SSH Login</td><td><span class='badge ok'>N/A</span></td></tr>
+        <tr><td class="key">Pending Updates</td><td><span class='badge warn'>1755 PENDING</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">NSCS OS Project &copy; 2026 &mdash; Short Summary Report &mdash; Monday 16 March 2026  17:53:27</div>
+</div></body></html>

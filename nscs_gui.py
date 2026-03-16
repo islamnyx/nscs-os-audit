@@ -232,11 +232,11 @@ class ModuleButton(tk.Frame):
             padx=0, pady=0
         )
 
-        inner = tk.Frame(self, bg=C_PANEL, padx=10, pady=5)
+        inner = tk.Frame(self, bg=C_PANEL, padx=12, pady=8)
         inner.pack(fill="both", expand=True)
 
         num_lbl = tk.Label(inner, text=f"[{number}]",
-                           font=("Courier New", 10, "bold"),
+                           font=("Courier New", 11, "bold"),
                            fg=acc, bg=C_PANEL)
         num_lbl.pack(side="left", padx=(0, 10))
 
@@ -244,7 +244,7 @@ class ModuleButton(tk.Frame):
         txt_frame.pack(side="left", fill="both", expand=True)
 
         tk.Label(txt_frame, text=label,
-                 font=("Courier New", 9, "bold"),
+                 font=("Courier New", 10, "bold"),
                  fg=C_WHITE, bg=C_PANEL,
                  anchor="w").pack(fill="x")
 
@@ -341,22 +341,18 @@ class NSCSApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
 
         # ── LEFT SIDEBAR ──────────────────────────────────────────────────
-        # Outer frame holds fixed header + scrollable menu area
-        sidebar_outer = tk.Frame(self, bg=C_BG2,
-                                 highlightbackground=C_DIM,
-                                 highlightthickness=1)
-        sidebar_outer.grid(row=0, column=0, sticky="nsew")
-        sidebar_outer.grid_rowconfigure(1, weight=1)
-        sidebar_outer.grid_columnconfigure(0, weight=1)
+        sidebar = tk.Frame(self, bg=C_BG2,
+                           highlightbackground=C_DIM,
+                           highlightthickness=1)
+        sidebar.grid(row=0, column=0, sticky="nsew")
+        sidebar.grid_rowconfigure(3, weight=1)
 
-        # ── FIXED TOP: matrix + banner + clock (never scrolls) ────────────
-        top_fixed = tk.Frame(sidebar_outer, bg=C_BG2)
-        top_fixed.grid(row=0, column=0, sticky="ew")
-
-        self.matrix = MatrixRain(top_fixed, width=320, height=80)
+        # Matrix rain header
+        self.matrix = MatrixRain(sidebar, width=320, height=120)
         self.matrix.pack(fill="x")
 
-        banner_frame = tk.Frame(top_fixed, bg=C_BG2)
+        # ASCII banner over matrix (overlay label)
+        banner_frame = tk.Frame(sidebar, bg=C_BG2)
         banner_frame.pack(fill="x", padx=8, pady=(4, 0))
 
         ascii_art = (
@@ -368,7 +364,7 @@ class NSCSApp(ctk.CTk):
             " ╚═╝  ╚═══╝╚══════╝ ╚═════╝╚══════╝"
         )
         tk.Label(banner_frame, text=ascii_art,
-                 font=("Courier New", 6, "bold"),
+                 font=("Courier New", 7, "bold"),
                  fg=C_GREEN, bg=C_BG2,
                  justify="left").pack(anchor="w")
 
@@ -377,156 +373,39 @@ class NSCSApp(ctk.CTk):
                  font=("Courier New", 8),
                  fg=C_GREEN3, bg=C_BG2).pack(anchor="w", pady=(2, 0))
 
-        tk.Frame(top_fixed, bg=C_DIM, height=1).pack(fill="x", pady=3)
+        # Divider
+        tk.Frame(sidebar, bg=C_DIM, height=1).pack(fill="x", pady=6)
 
-        self.clock_lbl = tk.Label(top_fixed, text="",
-                                  font=("Courier New", 9, "bold"),
+        # Clock
+        self.clock_lbl = tk.Label(sidebar,
+                                  text="",
+                                  font=("Courier New", 10, "bold"),
                                   fg=C_GREEN2, bg=C_BG2)
-        self.clock_lbl.pack(fill="x", padx=12, pady=(0, 2))
+        self.clock_lbl.pack(fill="x", padx=12, pady=(0, 4))
 
-        tk.Label(top_fixed,
-                 text=f"HOST: {os.uname().nodename}   USER: {os.getenv('USER','root')}",
-                 font=("Courier New", 8), fg=C_GREEN3, bg=C_BG2
-                 ).pack(fill="x", padx=12)
+        # System info row
+        info = tk.Label(sidebar,
+                        text=f"HOST: {os.uname().nodename}   USER: {os.getenv('USER','root')}",
+                        font=("Courier New", 8),
+                        fg=C_GREEN3, bg=C_BG2)
+        info.pack(fill="x", padx=12)
 
-        tk.Frame(top_fixed, bg=C_DIM, height=1).pack(fill="x", pady=3)
+        tk.Frame(sidebar, bg=C_DIM, height=1).pack(fill="x", pady=6)
 
-        # ── SCROLLABLE MENU AREA ──────────────────────────────────────────
-        # Container holds canvas + custom scrollbar side by side
-        scroll_container = tk.Frame(sidebar_outer, bg=C_BG2)
-        scroll_container.grid(row=1, column=0, columnspan=2, sticky="nsew")
-        scroll_container.grid_rowconfigure(0, weight=1)
-        scroll_container.grid_columnconfigure(0, weight=1)
-
-        scroll_canvas = tk.Canvas(scroll_container, bg=C_BG2,
-                                  highlightthickness=0, bd=0)
-        scroll_canvas.grid(row=0, column=0, sticky="nsew")
-
-        # ── Custom hacker-style scrollbar (drawn on a canvas) ─────────────
-        sb_canvas = tk.Canvas(scroll_container, bg="#020a02",
-                              width=12, highlightthickness=0, bd=0,
-                              cursor="hand2")
-        sb_canvas.grid(row=0, column=1, sticky="ns")
-
-        # Draw the scrollbar track + thumb
-        def _draw_scrollbar(first, last):
-            sb_canvas.delete("all")
-            h = sb_canvas.winfo_height() or 200
-            w = sb_canvas.winfo_width()  or 12
-            # Track
-            sb_canvas.create_rectangle(0, 0, w, h,
-                                       fill="#010801", outline="")
-            # Track border line on left
-            sb_canvas.create_line(0, 0, 0, h,
-                                  fill=C_DIM, width=1)
-            # Thumb
-            try:
-                f, l = float(first), float(last)
-            except Exception:
-                f, l = 0.0, 1.0
-            thumb_top    = int(f * h)
-            thumb_bottom = int(l * h)
-            thumb_min    = 20
-            if thumb_bottom - thumb_top < thumb_min:
-                thumb_bottom = thumb_top + thumb_min
-            # Thumb glow outline
-            sb_canvas.create_rectangle(2, thumb_top + 1,
-                                       w - 2, thumb_bottom - 1,
-                                       fill=C_DIM, outline=C_GREEN3,
-                                       width=1)
-            # Bright thumb center strip
-            sb_canvas.create_rectangle(4, thumb_top + 3,
-                                       w - 4, thumb_bottom - 3,
-                                       fill=C_GREEN3, outline="")
-            # Arrow indicators at top/bottom
-            mid = w // 2
-            sb_canvas.create_text(mid, 5,  text="▲",
-                                  fill=C_GREEN3, font=("Courier New", 6))
-            sb_canvas.create_text(mid, h - 5, text="▼",
-                                  fill=C_GREEN3, font=("Courier New", 6))
-
-        def _sb_set(first, last):
-            _draw_scrollbar(first, last)
-            # Store for drag calculations
-            sb_canvas._first = float(first)
-            sb_canvas._last  = float(last)
-
-        scroll_canvas.configure(yscrollcommand=_sb_set)
-
-        # Click on scrollbar to jump
-        def _sb_click(event):
-            h = sb_canvas.winfo_height() or 1
-            fraction = event.y / h
-            scroll_canvas.yview_moveto(fraction)
-        sb_canvas.bind("<Button-1>", _sb_click)
-
-        # Drag the thumb
-        sb_canvas._drag_start_y = None
-        sb_canvas._drag_start_first = 0.0
-
-        def _sb_drag_start(event):
-            sb_canvas._drag_start_y     = event.y
-            sb_canvas._drag_start_first = getattr(sb_canvas, "_first", 0.0)
-        def _sb_drag(event):
-            if sb_canvas._drag_start_y is None:
-                return
-            h = sb_canvas.winfo_height() or 1
-            delta = (event.y - sb_canvas._drag_start_y) / h
-            scroll_canvas.yview_moveto(sb_canvas._drag_start_first + delta)
-        def _sb_drag_end(event):
-            sb_canvas._drag_start_y = None
-
-        sb_canvas.bind("<B1-Motion>",       _sb_drag)
-        sb_canvas.bind("<ButtonRelease-1>", _sb_drag_end)
-
-        # Redraw scrollbar when resized
-        sb_canvas.bind("<Configure>",
-                       lambda e: _draw_scrollbar(
-                           getattr(sb_canvas, "_first", 0.0),
-                           getattr(sb_canvas, "_last",  1.0)))
-
-        # Wire scrollbar arrows to canvas
-        sb_canvas.configure(yscrollcommand=None)
-
-        # Inner frame lives inside the canvas
-        sidebar = tk.Frame(scroll_canvas, bg=C_BG2)
-        sidebar_window = scroll_canvas.create_window((0, 0), window=sidebar,
-                                                     anchor="nw")
-
-        # Keep inner frame width = canvas width
-        def _on_canvas_resize(event):
-            scroll_canvas.itemconfig(sidebar_window, width=event.width)
-        scroll_canvas.bind("<Configure>", _on_canvas_resize)
-
-        # Update scroll region when inner frame changes size
-        def _on_frame_resize(event):
-            scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
-        sidebar.bind("<Configure>", _on_frame_resize)
-
-        # Mouse wheel scrolling
-        def _on_mousewheel(event):
-            scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        scroll_canvas.bind_all("<MouseWheel>", _on_mousewheel)
-        # Linux scroll (Button-4 = up, Button-5 = down)
-        scroll_canvas.bind_all("<Button-4>",
-                               lambda e: scroll_canvas.yview_scroll(-1, "units"))
-        scroll_canvas.bind_all("<Button-5>",
-                               lambda e: scroll_canvas.yview_scroll(1, "units"))
-
-        # ── MENU BUTTONS (inside scrollable sidebar) ──────────────────────
+        # ── MENU BUTTONS ──────────────────────────────────────────────────
         menu_label = tk.Label(sidebar, text="█ SYSTEM MENU",
                               font=("Courier New", 9, "bold"),
                               fg=C_GREEN3, bg=C_BG2, anchor="w")
-        menu_label.pack(fill="x", padx=12, pady=(4, 4))
+        menu_label.pack(fill="x", padx=12, pady=(0, 6))
 
         modules = [
-            ("1",  "Hardware Audit",       "Phase 1 — audit_hardware_v2.sh",  self._run_hardware),
-            ("2",  "Software Audit",        "Phase 1 — audit_software.sh",     self._run_software),
-            ("3",  "Generate Reports",      "Phase 2 — generate_reports.sh",   self._run_reports),
-            ("4",  "Send Email Reports",    "Phase 3 — send_reports.sh",       self._run_email),
-            ("5",  "Setup Cron Jobs",       "Phase 4 — setup_cron.sh",         self._run_cron),
-            ("6",  "Remote Monitoring",     "Phase 5 — remote_monitor.sh",     self._run_remote),
-            ("10", "Help & Documentation",  "View docs",                       self._run_help),
+            ("1",  "Hardware Audit",        "Phase 1 — audit_hardware_v2.sh",  self._run_hardware),
+            ("2",  "Software Audit",         "Phase 1 — audit_software.sh",     self._run_software),
+            ("3",  "Generate Reports",       "Phase 2 — generate_reports.sh",   self._run_reports),
+            ("4",  "Send Email Reports",     "Phase 3 — send_reports.sh",       self._run_email),
+            ("5",  "Setup Cron Jobs",        "Phase 4 — setup_cron.sh",         self._run_cron),
+            ("6",  "Remote Monitoring",      "Phase 5 — remote_monitor.sh",     self._run_remote),
+            ("10", "Help & Documentation",   "View docs",                       self._run_help),
         ]
 
         self._btns = {}
@@ -535,19 +414,20 @@ class NSCSApp(ctk.CTk):
 
         for num, label, phase, cmd in modules:
             btn = ModuleButton(btn_frame, num, label, phase, cmd)
-            btn.pack(fill="x", pady=1)
+            btn.pack(fill="x", pady=2)
             self._btns[num] = btn
 
-        tk.Frame(sidebar, bg=C_DIM, height=1).pack(fill="x", pady=4)
+        tk.Frame(sidebar, bg=C_DIM, height=1).pack(fill="x", pady=6)
 
         exit_btn = ModuleButton(sidebar, "0", "Exit System", "Terminate session",
                                 self._on_close, danger=True)
-        exit_btn.pack(fill="x", padx=8, pady=(0, 4))
+        exit_btn.pack(fill="x", padx=8, pady=(0, 8))
 
+        # Deadline label
         tk.Label(sidebar,
                  text="DEADLINE: MAR 30, 2026 @ 08:00",
                  font=("Courier New", 8, "bold"),
-                 fg="#444400", bg=C_BG2).pack(pady=(0, 10))
+                 fg="#444400", bg=C_BG2).pack(pady=(0, 8))
 
         # ── RIGHT PANEL ───────────────────────────────────────────────────
         right = tk.Frame(self, bg=C_BG)
