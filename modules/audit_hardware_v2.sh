@@ -38,105 +38,150 @@ TW=$(tput cols 2>/dev/null || echo 80)
 # UTILITIES
 # ============================================================================
 
-repeat_char() { printf "%${2}s" | tr ' ' "$1"; }
+_print_ascii_art() {
+    center_print "██╗  ██╗ █████╗ ██████╗ ██████╗ ██╗    ██╗ █████╗ ██████╗ ███████╗"
+    center_print "██║  ██║██╔══██╗██╔══██╗██╔══██╗██║    ██║██╔══██╗██╔══██╗██╔════╝"
+    center_print "███████║███████║██████╔╝██║  ██║██║ █╗ ██║███████║██████╔╝█████╗  "
+    center_print "██╔══██║██╔══██║██╔══██╗██║  ██║██║███╗██║██╔══██║██╔══██╗██╔══╝  "
+    center_print "██║  ██║██║  ██║██║  ██║██████╔╝╚███╔███╔╝██║  ██║██║  ██║███████╗"
+    center_print "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝"
+}
 
+# ============================================================================
+# RESPONSIVE TERMINAL — auto-adapts to any width (GUI or terminal)
+# ============================================================================
+
+# Always re-read terminal width — works inside GUI subprocess too
+_get_tw() { tput cols 2>/dev/null || echo 80; }
+TW=$(_get_tw)
+# Clamp: never go below 40 or above 120
+(( TW < 40 )) && TW=40
+(( TW > 120 )) && TW=120
+
+repeat_char() {
+    local char="$1" count="$2"
+    (( count <= 0 )) && return
+    printf "%${count}s" | tr ' ' "$char"
+}
+
+# Safe divider — never overflows the terminal
+divider() {
+    local char="${1:-─}" color="${2:-$G0}"
+    local w=$(( TW - 4 ))
+    (( w < 10 )) && w=10
+    echo -e "${color}$(repeat_char "$char" $w)${NC}"
+}
+
+# Center text — strips ANSI before measuring length
 center_print() {
     local text="$1"
-    local clean; clean=$(echo -e "$text" | sed 's/\x1b\[[0-9;]*m//g')
+    local clean; clean=$(printf '%b' "$text" | sed 's/\x1b\[[0-9;]*[mKHABCDEFGJSTfu]//g')
     local len=${#clean}
     local pad=$(( (TW - len) / 2 ))
-    printf "%${pad}s"
+    (( pad < 0 )) && pad=0
+    printf "%${pad}s" ""
     echo -e "$text"
 }
 
+# Adaptive banner — shows ASCII art only if terminal is wide enough
+# Falls back to a simple text banner on narrow screens (like the GUI panel)
+print_banner() {
+    local title="$1"
+    local subtitle="$2"
+    echo ""
+    if (( TW >= 72 )); then
+        # Full ASCII art — only when there is enough space
+        echo -e "${G1}"
+        _print_ascii_art "$title"
+        echo -e "${NC}"
+    else
+        # Compact banner for narrow terminals / GUI
+        echo -e "${G1}"
+        center_print "[ NSCS — ${title} ]"
+        echo -e "${NC}"
+    fi
+    local dw=$(( TW - 6 )); (( dw < 10 )) && dw=10
+    echo -e "${DM}$(repeat_char '═' $dw)${NC}"
+    center_print "${G0}${subtitle}${NC}"
+    center_print "${DM}$(date '+%A %d %B %Y   %H:%M:%S')${NC}"
+    echo -e "${DM}$(repeat_char '═' $dw)${NC}"
+    echo ""
+}
+
+# Section header — adapts fill width to terminal
 section() {
     local title="$1"
     local tlen=${#title}
-    local side=$(( (TW - tlen - 4) / 2 ))
-    (( side < 1 )) && side=1
+    local available=$(( TW - tlen - 6 ))
+    (( available < 2 )) && available=2
+    local side=$(( available / 2 ))
     echo ""
-    echo -en "${G0}"
-    repeat_char '─' $side
-    echo -en "${NC} ${G1}${BOLD}${title}${NC} ${G0}"
-    repeat_char '─' $side
-    echo -e "${NC}"
+    echo -en "${G0}$(repeat_char '─' $side)${NC}"
+    echo -en " ${G1}${BOLD}${title}${NC} "
+    echo -e "${G0}$(repeat_char '─' $side)${NC}"
 }
 
 print_field() {
     local key="$1" val="$2"
+    # Truncate value if it would overflow the line
+    local max_val=$(( TW - 30 ))
+    (( max_val < 10 )) && max_val=10
+    if (( ${#val} > max_val )); then
+        val="${val:0:$max_val}..."
+    fi
     printf "  ${DM}%-22s${NC} ${G1}▶${NC} ${WH}%s${NC}\n" "$key" "$val"
 }
 
-print_ok()   { echo -e "  ${G1}[  OK  ]${NC}  $1"; }
-print_warn() { echo -e "  ${YW}[  !!  ]${NC}  $1"; }
-print_info() { echo -e "  ${G0}[  **  ]${NC}  $1"; }
+print_ok()   { echo -e "  ${G1}[ OK ]${NC}  $1"; }
+print_warn() { echo -e "  ${YW}[ !! ]${NC}  $1"; }
+print_info() { echo -e "  ${G0}[ ** ]${NC}  $1"; }
+print_err()  { echo -e "  ${RD}[ XX ]${NC}  $1"; }
 
-# Typing effect for headers
 type_header() {
     local text="$1"
-    echo -en "${G1}"
-    while IFS= read -r -n1 char; do
-        echo -n "$char"; sleep 0.018
-    done <<< "$text"
-    echo -e "${NC}"
+    # In GUI mode skip typewriter (causes flicker), just print
+    if (( GUI_MODE == 1 )) || (( TW < 60 )); then
+        echo -e "${G1}${text}${NC}"
+    else
+        echo -en "${G1}"
+        while IFS= read -r -n1 char; do
+            echo -n "$char"; sleep 0.015
+        done <<< "$text"
+        echo -e "${NC}"
+    fi
 }
 
-# Progress bar
 progress() {
-    local label="$1" duration="${2:-1.2}"
-    local width=$(( TW - 20 ))
-    (( width > 50 )) && width=50
-    (( width < 10 )) && width=10
+    local label="$1" duration="${2:-1.0}"
+    # Adaptive bar width — leaves room for label + brackets + percentage
+    local label_len=${#label}
+    local bar_w=$(( TW - label_len - 12 ))
+    (( bar_w > 40 )) && bar_w=40
+    (( bar_w < 5  )) && bar_w=5
     echo -en "  ${DM}${label}${NC} ${G0}["
-    local steps=$width
-    local t; t=$(echo "scale=4; $duration / $steps" | bc 2>/dev/null || echo "0.03")
-    for ((i=0; i<steps; i++)); do
-        (( i < steps/3 ))       && echo -en "${DM}█${NC}"
-        (( i >= steps/3 && i < steps*2/3 )) && echo -en "${G0}█${NC}"
-        (( i >= steps*2/3 ))    && echo -en "${G1}█${NC}"
+    local t; t=$(echo "scale=4; $duration / $bar_w" | bc 2>/dev/null || echo "0.03")
+    for ((i=0; i<bar_w; i++)); do
+        (( i < bar_w/3 ))                    && echo -en "${DM}█${NC}"
+        (( i >= bar_w/3 && i < bar_w*2/3 ))  && echo -en "${G0}█${NC}"
+        (( i >= bar_w*2/3 ))                  && echo -en "${G1}█${NC}"
         sleep "$t"
     done
-    echo -e "${G1}]${NC}"
+    echo -e "${G1}] 100%${NC}"
 }
+
+
 
 # ============================================================================
 # BOOT HEADER
 # ============================================================================
 
 clear
-
-echo -e "${DM}"
-repeat_char '▄' $TW
-echo -e "${NC}"
-
-echo -e "${G1}"
-center_print "██╗  ██╗ █████╗ ██████╗ ██████╗ ██╗    ██╗ █████╗ ██████╗ ███████╗"
-center_print "██║  ██║██╔══██╗██╔══██╗██╔══██╗██║    ██║██╔══██╗██╔══██╗██╔════╝"
-center_print "███████║███████║██████╔╝██║  ██║██║ █╗ ██║███████║██████╔╝█████╗  "
-center_print "██╔══██║██╔══██║██╔══██╗██║  ██║██║███╗██║██╔══██║██╔══██╗██╔══╝  "
-center_print "██║  ██║██║  ██║██║  ██║██████╔╝╚███╔███╔╝██║  ██║██║  ██║███████╗"
-center_print "╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝"
-echo -e "${NC}"
-
-echo -e "${DM}"
-center_print "$(repeat_char '═' $(( TW - 6 )))"
-echo -e "${NC}"
-center_print "${G0}NSCS — Advanced Hardware Inventory  |  Phase 1  |  v2.0${NC}"
-center_print "${DM}$(date '+%A %d %B %Y   %H:%M:%S')${NC}"
-echo -e "${DM}"
-center_print "$(repeat_char '═' $(( TW - 6 )))"
-echo -e "${NC}"
-
-echo ""
-echo -en "  "; type_header ">>> INITIALIZING HARDWARE SCANNER..."
+print_banner "HARDWARE" "Advanced Hardware Inventory  |  Phase 1  |  v2.0"
+type_header ">>> INITIALIZING HARDWARE SCANNER..."
 progress "Probing system buses   " 1.0
 progress "Loading kernel modules " 0.8
 progress "Querying DMI/SMBIOS    " 0.7
 echo ""
-
-# ============================================================================
-# 1. MOTHERBOARD & BIOS
-# ============================================================================
 
 section "MOTHERBOARD & BIOS"
 
@@ -348,10 +393,10 @@ fi
 
 echo ""
 echo -e "${DM}"
-repeat_char '▀' $TW
+divider '═'
 echo -e "${NC}"
 center_print "${G0}Hardware Audit Complete  |  $(date '+%H:%M:%S')${NC}"
 echo -e "${DM}"
-repeat_char '▄' $TW
+divider '▄'
 echo -e "${NC}"
 echo ""
