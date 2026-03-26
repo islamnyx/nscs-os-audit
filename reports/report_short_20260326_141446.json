@@ -1,0 +1,25 @@
+{
+  "report_type": "short_summary",
+  "generated": "Thu Mar 26 02:14:50 PM EDT 2026",
+  "hostname": "kali",
+  "hardware": {
+    "cpu": "Intel(R)Core(TM)i5-3470CPU@3.20GHz",
+    "cores": "2",
+    "ram_total": "4.6Gi",
+    "ram_used": "1.6Gi",
+    "ram_percent": "34",
+    "gpu": "VMwareSVGAIIAdapter"
+  },
+  "software": {
+    "os": "KaliGNU/LinuxRolling",
+    "kernel": "Linux6.12.33+kali-amd64",
+    "uptime": "up37minutes",
+    "packages": "3275"
+  },
+  "security": {
+    "current_user": "kali",
+    "sudo_admins": "kali",
+    "root_ssh": "",
+    "updates_pending": "2278"
+  }
+}

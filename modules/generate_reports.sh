@@ -24,7 +24,7 @@ WH='\033[1;37m'; DM='\033[2;32m'; NC='\033[0m'; BOLD='\033[1m'
 # PATHS
 # ============================================================================
 
-REPORT_DIR="$HOME/nscs_os_project/reports"
+REPORT_DIR="$HOME/nscs-os-audit/reports"
 mkdir -p "$REPORT_DIR"
 TW=$(tput cols 2>/dev/null || echo 80)
 

@@ -25,7 +25,7 @@ BOLD='\033[1m'
 # PATHS
 # ============================================================================
 
-REPORT_DIR="$HOME/nscs_os_project/reports"
+REPORT_DIR="$HOME/nscs-os-audit/reports"
 mkdir -p "$REPORT_DIR"
 
 # GUI mode: pass --gui to skip interactive prompts and auto-save JSON

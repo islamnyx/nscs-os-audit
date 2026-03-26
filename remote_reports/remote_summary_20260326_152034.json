@@ -1,0 +1,21 @@
+{
+  "report_type": "remote_monitoring_centralized",
+  "generated": "Thu Mar 26 03:20:36 PM EDT 2026",
+  "controller_host": "kali",
+  "controller_user": "kali",
+  "mode": "demo",
+  "security": {
+    "auth_method": "RSA 4096-bit key pair",
+    "transport": "SSH/SCP AES-256",
+    "host_checking": "StrictHostKeyChecking=accept-new",
+    "timeout_seconds": 5
+  },
+  "summary": {
+    "total_hosts": 3,
+    "online": 3,
+    "offline": 0
+  },
+  "hosts": [
+    {"label":"Lab-Machine-1","ip":"192.168.1.10","status":"ONLINE","cpu":36,"ram":53,"disk":56,"uptime":"66h 14m"},    {"label":"Lab-Machine-2","ip":"192.168.1.11","status":"ONLINE","cpu":19,"ram":29,"disk":35,"uptime":"18h 56m"},    {"label":"Server-Prod","ip":"192.168.1.12","status":"ONLINE","cpu":11,"ram":53,"disk":18,"uptime":"40h 58m"}
+  ]
+}

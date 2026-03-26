@@ -74,7 +74,7 @@ BOLD='\033[1m'
 # ============================================================================
 
 # Base project directory
-BASE_DIR="$HOME/nscs_os_project"
+BASE_DIR="$HOME/nscs-os-audit"
 
 # Where local reports live (from phases 1 & 2)
 REPORT_DIR="$BASE_DIR/reports"

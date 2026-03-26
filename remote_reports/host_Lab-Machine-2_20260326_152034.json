@@ -1,0 +1,16 @@
+{
+  "label": "Lab-Machine-2",
+  "ip": "192.168.1.11",
+  "user": "ubuntu",
+  "collected_at": "Thu Mar 26 03:20:34 PM EDT 2026",
+  "collection_method": "SSH remote command (demo)",
+  "status": "ONLINE",
+  "metrics": {
+    "cpu_percent": 19,
+    "ram_percent": 29,
+    "disk_percent": 35,
+    "uptime": "18h 56m",
+    "kernel": "6.5.0-35-generic",
+    "hostname": "Lab-Machine-2"
+  }
+}
