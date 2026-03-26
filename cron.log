@@ -1,0 +1,31 @@
+[2026-03-26 16:16:40] [INFO] setup_cron.sh started — user: kali host: kali
+[2026-03-26 16:16:40] [INFO] Module verified: audit_hardware_v2.sh
+[2026-03-26 16:16:40] [INFO] Module verified: audit_software.sh
+[2026-03-26 16:16:40] [INFO] Module verified: generate_reports.sh
+[2026-03-26 16:16:40] [INFO] Module verified: send_reports.sh
+[2026-03-26 16:16:40] [INFO] Module verified: remote_monitor.sh
+[2026-03-26 16:16:41] [INFO] Cron runner script created: /home/kali/nscs-os-audit/nscs_cron_runner.sh
+[2026-03-26 16:17:27] [INFO] setup_cron.sh started — user: kali host: kali
+[2026-03-26 16:17:27] [INFO] Module verified: audit_hardware_v2.sh
+[2026-03-26 16:17:27] [INFO] Module verified: audit_software.sh
+[2026-03-26 16:17:27] [INFO] Module verified: generate_reports.sh
+[2026-03-26 16:17:27] [INFO] Module verified: send_reports.sh
+[2026-03-26 16:17:27] [INFO] Module verified: remote_monitor.sh
+[2026-03-26 16:17:29] [INFO] Cron runner script created: /home/kali/nscs-os-audit/nscs_cron_runner.sh
+[2026-03-26 16:17:46] [INFO] Cron installed: audit=0 4 * * * email=disabled
+[2026-03-26 16:17:46] [INFO] Log rotation configured
+[2026-03-26 16:17:46] [INFO] Cron daemon: ACTIVE
+[2026-03-26 16:17:53] [INFO] setup_cron.sh completed successfully
+[2026-03-26 16:17:53] [INFO] Next scheduled run: 2026-03-27 04:00:00
+[2026-03-26 16:20:11] [INFO] setup_cron.sh started — user: kali host: kali
+[2026-03-26 16:20:11] [INFO] Module verified: audit_hardware_v2.sh
+[2026-03-26 16:20:11] [INFO] Module verified: audit_software.sh
+[2026-03-26 16:20:11] [INFO] Module verified: generate_reports.sh
+[2026-03-26 16:20:11] [INFO] Module verified: send_reports.sh
+[2026-03-26 16:20:12] [INFO] Module verified: remote_monitor.sh
+[2026-03-26 16:20:13] [INFO] Cron runner script created: /home/kali/nscs-os-audit/nscs_cron_runner.sh
+[2026-03-26 16:20:13] [INFO] Cron installed: audit=0 4 * * * email=0 8 1 * *
+[2026-03-26 16:20:13] [INFO] Log rotation configured
+[2026-03-26 16:20:13] [INFO] Cron daemon: ACTIVE
+[2026-03-26 16:20:13] [INFO] setup_cron.sh completed successfully
+[2026-03-26 16:20:13] [INFO] Next scheduled run: 2026-03-27 04:00:00
