@@ -1,824 +1,428 @@
 #!/bin/bash
-# =============================================================================
-# FILE        : audit_software.sh
-# PROJECT     : NSCS Linux Audit & Monitoring System — 2025/2026
-# DESCRIPTION : Collects complete OS and software information for audit.
-#               Outputs plain text lines that the GUI parses for color tags.
-# AUTHOR      : [Your Name]
-# SHELL       : bash (compatible with any Linux shell)
-# USAGE       : bash audit_software.sh [--short | --full | --gui]
-#               --short  : concise summary report
-#               --full   : complete detailed report (default)
-#               --gui    : same as --full but no ANSI colors (GUI mode)
-# =============================================================================
+################################################################################
+# NSCS OS Project - Software Audit Module (HACKER EDITION)
+# Phase 1 — Advanced OS, Security & Service Audit with Hacker UI
+# Author: NSCS OS Project
+# Date: 2026
+################################################################################
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 0 — MODE & COLOR SETUP
-#
-# The GUI calls this script with --gui and sets NO_COLOR=1 in the environment.
-# When in GUI mode, we skip ANSI escape codes entirely — the Python GUI
-# applies its own colors by parsing keywords like [OK], [WARN], [ERROR].
-# When run in a normal terminal, full color output is used.
-# ─────────────────────────────────────────────────────────────────────────────
-MODE="${1:---full}"
+# ============================================================================
+# COLORS & EFFECTS
+# ============================================================================
 
-# Detect GUI mode: either --gui flag or NO_COLOR env variable
-if [[ "$MODE" == "--gui" ]] || [[ "${NO_COLOR:-}" == "1" ]]; then
-    GUI_MODE=1
-    MODE="--full"   # GUI always gets full output
-else
-    GUI_MODE=0
-fi
+G0='\033[0;32m'
+G1='\033[1;32m'
+G2='\033[0;92m'
+CY='\033[0;36m'
+YW='\033[1;33m'
+RD='\033[1;31m'
+WH='\033[1;37m'
+DM='\033[2;32m'
+NC='\033[0m'
+BOLD='\033[1m'
 
-# Only define colors when NOT in GUI mode
-if [[ $GUI_MODE -eq 0 ]]; then
-    RED='\e[1;31m'; GREEN='\e[1;32m'; YELLOW='\e[1;33m'
-    CYAN='\e[1;36m'; BLUE='\e[1;34m'; MAGENTA='\e[1;35m'
-    WHITE='\e[1;37m'; RESET='\e[0m'
-else
-    RED=''; GREEN=''; YELLOW=''; CYAN=''; BLUE=''; MAGENTA=''; WHITE=''; RESET=''
-fi
+# ============================================================================
+# PATHS
+# ============================================================================
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 1 — CONFIGURATION
-#
-# Report directory: where generated report files are saved.
-# We use $HOME/nscs_os_project/reports to match what the GUI sets up.
-# ─────────────────────────────────────────────────────────────────────────────
 REPORT_DIR="$HOME/nscs_os_project/reports"
-LOG_DIR="$HOME/nscs_os_project"
-LOG_FILE="$LOG_DIR/audit.log"
+mkdir -p "$REPORT_DIR"
 
-# Timestamp strings used in filenames and report headers
-TIMESTAMP=$(date '+%Y-%m-%d_%H-%M-%S')
-HUMAN_DATE=$(date '+%A, %B %d %Y  %H:%M:%S')
-HOSTNAME_VAL=$(hostname)
+# GUI mode: pass --gui to skip interactive prompts and auto-save JSON
+GUI_MODE=0
+for arg in "$@"; do [[ "$arg" == "--gui" ]] && GUI_MODE=1; done
 
-# Determine short or full
-REPORT_TYPE="full"
-[[ "$MODE" == "--short" ]] && REPORT_TYPE="short"
+TW=$(tput cols 2>/dev/null || echo 80)
 
-# Temp file — we build the report here then copy it to the final location
-TEMP_REPORT=$(mktemp /tmp/soft_audit_XXXXXX.tmp)
+# ============================================================================
+# UTILITIES
+# ============================================================================
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 2 — HELPER FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
+_print_ascii_art() {
+    center_print "███████╗ ██████╗ ███████╗████████╗██╗    ██╗ █████╗ ██████╗ ███████╗"
+    center_print "██╔════╝██╔═══██╗██╔════╝╚══██╔══╝██║    ██║██╔══██╗██╔══██╗██╔════╝"
+    center_print "███████╗██║   ██║█████╗     ██║   ██║ █╗ ██║███████║██████╔╝█████╗  "
+    center_print "╚════██║██║   ██║██╔══╝     ██║   ██║███╗██║██╔══██║██╔══██╗██╔══╝  "
+    center_print "███████║╚██████╔╝██║        ██║   ╚███╔███╔╝██║  ██║██║  ██║███████╗"
+    center_print "╚══════╝ ╚═════╝ ╚═╝        ╚═╝    ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝"
+}
 
-# info: print an [OK] status line
-# The GUI detects "[ OK ]" or "[OK]" and colors it green automatically
-info() { echo -e "${GREEN}[ OK ] $1${RESET}"; }
+# ============================================================================
+# RESPONSIVE TERMINAL — auto-adapts to any width (GUI or terminal)
+# ============================================================================
 
-# warn: print a [WARN] line — GUI colors it yellow
-warn() { echo -e "${YELLOW}[WARN] $1${RESET}"; }
+# Always re-read terminal width — works inside GUI subprocess too
+_get_tw() { tput cols 2>/dev/null || echo 80; }
+TW=$(_get_tw)
+# Clamp: never go below 40 or above 120
+(( TW < 40 )) && TW=40
+(( TW > 120 )) && TW=120
 
-# err: print an [ERROR] line — GUI colors it red
-err()  { echo -e "${RED}[ERROR] $1${RESET}"; }
+repeat_char() {
+    local char="$1" count="$2"
+    (( count <= 0 )) && return
+    printf "%${count}s" | tr ' ' "$char"
+}
 
-# section: print a section header — GUI detects keywords and adds separators
+# Safe divider — never overflows the terminal
+divider() {
+    local char="${1:-─}" color="${2:-$G0}"
+    local w=$(( TW - 4 ))
+    (( w < 10 )) && w=10
+    echo -e "${color}$(repeat_char "$char" $w)${NC}"
+}
+
+# Center text — strips ANSI before measuring length
+center_print() {
+    local text="$1"
+    local clean; clean=$(printf '%b' "$text" | sed 's/\x1b\[[0-9;]*[mKHABCDEFGJSTfu]//g')
+    local len=${#clean}
+    local pad=$(( (TW - len) / 2 ))
+    (( pad < 0 )) && pad=0
+    printf "%${pad}s" ""
+    echo -e "$text"
+}
+
+# Adaptive banner — shows ASCII art only if terminal is wide enough
+# Falls back to a simple text banner on narrow screens (like the GUI panel)
+print_banner() {
+    local title="$1"
+    local subtitle="$2"
+    echo ""
+    if (( TW >= 72 )); then
+        # Full ASCII art — only when there is enough space
+        echo -e "${G1}"
+        _print_ascii_art "$title"
+        echo -e "${NC}"
+    else
+        # Compact banner for narrow terminals / GUI
+        echo -e "${G1}"
+        center_print "[ NSCS — ${title} ]"
+        echo -e "${NC}"
+    fi
+    local dw=$(( TW - 6 )); (( dw < 10 )) && dw=10
+    echo -e "${DM}$(repeat_char '═' $dw)${NC}"
+    center_print "${G0}${subtitle}${NC}"
+    center_print "${DM}$(date '+%A %d %B %Y   %H:%M:%S')${NC}"
+    echo -e "${DM}$(repeat_char '═' $dw)${NC}"
+    echo ""
+}
+
+# Section header — adapts fill width to terminal
 section() {
+    local title="$1"
+    local tlen=${#title}
+    local available=$(( TW - tlen - 6 ))
+    (( available < 2 )) && available=2
+    local side=$(( available / 2 ))
     echo ""
-    echo -e "${CYAN}>>> $1${RESET}"
-    echo "────────────────────────────────────────────────────"
+    echo -en "${G0}$(repeat_char '─' $side)${NC}"
+    echo -en " ${G1}${BOLD}${title}${NC} "
+    echo -e "${G0}$(repeat_char '─' $side)${NC}"
 }
 
-# write: append a line to the temp report file (silent, no terminal output)
-write() { echo "$1" >> "$TEMP_REPORT"; }
-
-# tee_line: print to terminal AND write to report file simultaneously
-tee_line() { echo -e "$1" | tee -a "$TEMP_REPORT"; }
-
-# cmd_safe: run a command; return "N/A" if it fails or doesn't exist
-# This prevents the script from crashing if a tool is missing
-cmd_safe() { eval "$1" 2>/dev/null || echo "N/A"; }
-
-# check_cmd: verify a command exists before using it
-check_cmd() { command -v "$1" &>/dev/null; }
-
-# log: append a timestamped message to the audit log file
-log() {
-    mkdir -p "$LOG_DIR" 2>/dev/null
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] SOFTWARE_AUDIT: $1" >> "$LOG_FILE"
+print_field() {
+    local key="$1" val="$2"
+    # Truncate value if it would overflow the line
+    local max_val=$(( TW - 30 ))
+    (( max_val < 10 )) && max_val=10
+    if (( ${#val} > max_val )); then
+        val="${val:0:$max_val}..."
+    fi
+    printf "  ${DM}%-22s${NC} ${G1}▶${NC} ${WH}%s${NC}\n" "$key" "$val"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 3 — SETUP DIRECTORIES
-# ─────────────────────────────────────────────────────────────────────────────
-setup_dirs() {
-    mkdir -p "$REPORT_DIR" 2>/dev/null || {
-        warn "Cannot create $REPORT_DIR — falling back to /tmp/nscs_reports"
-        REPORT_DIR="/tmp/nscs_reports"
-        mkdir -p "$REPORT_DIR"
-    }
-}
+print_ok()   { echo -e "  ${G1}[ OK ]${NC}  $1"; }
+print_warn() { echo -e "  ${YW}[ !! ]${NC}  $1"; }
+print_info() { echo -e "  ${G0}[ ** ]${NC}  $1"; }
+print_err()  { echo -e "  ${RD}[ XX ]${NC}  $1"; }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4 — REPORT FILE HEADER
-# Every report starts with an identification block.
-# ─────────────────────────────────────────────────────────────────────────────
-write_header() {
-    write "=============================================================="
-    write "   NSCS LINUX AUDIT — SOFTWARE & OS MODULE"
-    write "   Report Type  : $(echo $REPORT_TYPE | tr a-z A-Z)"
-    write "   Date & Time  : $HUMAN_DATE"
-    write "   Hostname     : $HOSTNAME_VAL"
-    write "   Generated by : audit_software.sh"
-    write "   Project      : NSCS OS Mini-Project 2025/2026"
-    write "=============================================================="
-    write ""
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 5 — OPERATING SYSTEM INFORMATION
-#
-# KEY COMMANDS EXPLAINED:
-#   /etc/os-release  : Standard file on all modern Linux distros.
-#                      Contains OS name, version, ID in KEY=VALUE format.
-#                      grep '^PRETTY_NAME' finds the line starting with that key.
-#                      cut -d= -f2 splits on '=' and takes the 2nd part.
-#                      tr -d '"' removes quote characters.
-#
-#   uname -r         : Prints kernel release version (e.g. 6.1.0-kali9-amd64)
-#   uname -m         : Machine architecture (x86_64, arm64, etc.)
-#   uname -o         : OS type (GNU/Linux)
-#   uptime -p        : Human-readable uptime (e.g. "up 3 hours, 5 minutes")
-# ─────────────────────────────────────────────────────────────────────────────
-collect_os_info() {
-    section "OPERATING SYSTEM INFORMATION"
-    write "[ OPERATING SYSTEM INFORMATION ]"
-    write "──────────────────────────────────────────────────────"
-
-    OS_NAME=$(cmd_safe "grep '^PRETTY_NAME' /etc/os-release | cut -d= -f2 | tr -d '\"'")
-    OS_VERSION=$(cmd_safe "grep '^VERSION_ID' /etc/os-release | cut -d= -f2 | tr -d '\"'")
-    KERNEL=$(cmd_safe "uname -r")
-    ARCH=$(cmd_safe "uname -m")
-    OS_TYPE=$(cmd_safe "uname -o")
-    UPTIME=$(cmd_safe "uptime -p")
-    BOOT_TIME=$(cmd_safe "who -b | awk '{print \$3, \$4}'")
-
-    tee_line "  OS Name        : $OS_NAME"
-    tee_line "  OS Version     : $OS_VERSION"
-    tee_line "  Kernel Version : $KERNEL"
-    tee_line "  Architecture   : $ARCH"
-    tee_line "  OS Type        : $OS_TYPE"
-    tee_line "  System Uptime  : $UPTIME"
-    tee_line "  Last Boot      : $BOOT_TIME"
-
-    info "OS information collected."
-    log "OS info collected: $OS_NAME | Kernel: $KERNEL"
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 6 — INSTALLED PACKAGES
-#
-# KEY COMMANDS EXPLAINED:
-#   dpkg -l           : Lists all packages managed by Debian's package manager.
-#                       Lines starting with 'ii' = fully installed.
-#   grep -c '^ii'     : Count lines starting with 'ii' = count installed pkgs.
-#   dpkg-query -W     : Query package info with custom format string.
-#   -f='${Package}\t${Version}\n'  : Format: name TAB version NEWLINE.
-#   awk '{printf...}' : Format output into aligned columns.
-#
-# WHY THIS MATTERS IN CYBERSECURITY:
-#   Knowing exactly what software is installed helps detect:
-#   - Unauthorized software (someone installed something they shouldn't)
-#   - Outdated packages with known CVEs (vulnerabilities)
-#   - Unexpected services that could be backdoors
-# ─────────────────────────────────────────────────────────────────────────────
-collect_packages() {
-    section "INSTALLED PACKAGES"
-    write ""
-    write "[ INSTALLED PACKAGES ]"
-    write "──────────────────────────────────────────────────────"
-
-    if check_cmd "dpkg"; then
-        PKG_COUNT=$(dpkg -l 2>/dev/null | grep -c '^ii')
-        tee_line "  Package Manager : dpkg (Debian / Kali Linux)"
-        tee_line "  Total Installed : $PKG_COUNT packages"
-        write ""
-
-        if [[ "$REPORT_TYPE" == "full" ]]; then
-            write "  [ Full Package List — Name | Version ]"
-            write "  $(printf '%-40s %s' 'PACKAGE' 'VERSION')"
-            write "  $(printf '%-40s %s' '───────' '───────')"
-            dpkg-query -W -f='${Package}\t${Version}\t${db:Status-Status}\n' 2>/dev/null \
-                | grep "installed" \
-                | awk '{printf "  %-40s %s\n", $1, $2}' >> "$TEMP_REPORT"
-        else
-            write "  [ Last 20 Packages ]"
-            dpkg-query -W -f='  ${Package}\t${Version}\n' 2>/dev/null \
-                | head -20 >> "$TEMP_REPORT"
-        fi
-
-        # Security check: list packages with known outdated patterns
-        write ""
-        write "  [ Recently Installed (last 10 — from dpkg log) ]"
-        if [[ -f /var/log/dpkg.log ]]; then
-            grep " install " /var/log/dpkg.log 2>/dev/null \
-                | tail -10 \
-                | awk '{print "  " $1, $2, $4}' >> "$TEMP_REPORT"
-        else
-            write "  (dpkg log not available)"
-        fi
-
-    elif check_cmd "rpm"; then
-        PKG_COUNT=$(rpm -qa 2>/dev/null | wc -l)
-        tee_line "  Package Manager : rpm (RedHat / Fedora / CentOS)"
-        tee_line "  Total Installed : $PKG_COUNT packages"
-        [[ "$REPORT_TYPE" == "full" ]] && \
-            rpm -qa --qf '  %-40{NAME} %{VERSION}\n' 2>/dev/null >> "$TEMP_REPORT"
+type_header() {
+    local text="$1"
+    # In GUI mode skip typewriter (causes flicker), just print
+    if (( GUI_MODE == 1 )) || (( TW < 60 )); then
+        echo -e "${G1}${text}${NC}"
     else
-        warn "No supported package manager found (dpkg/rpm)."
-        write "  [WARN] No supported package manager found."
+        echo -en "${G1}"
+        while IFS= read -r -n1 char; do
+            echo -n "$char"; sleep 0.015
+        done <<< "$text"
+        echo -e "${NC}"
     fi
-
-    info "Package list collected — $PKG_COUNT packages found."
-    log "Packages collected: $PKG_COUNT"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 7 — RUNNING SERVICES
-#
-# KEY COMMANDS EXPLAINED:
-#   systemctl list-units --type=service --state=running
-#       Lists only services that are currently active and running.
-#       --no-pager : don't pause output (important for non-interactive use).
-#       --no-legend: skip the header/footer lines.
-#   awk '/\.service/'  : Only process lines containing ".service"
-#
-# WHY THIS MATTERS IN CYBERSECURITY:
-#   Every running service is a potential attack surface.
-#   An unexpected service = possible compromise or misconfiguration.
-#   Example: if 'telnetd' is running, that's a huge security risk.
-# ─────────────────────────────────────────────────────────────────────────────
-collect_services() {
-    section "RUNNING SERVICES"
-    write ""
-    write "[ RUNNING SERVICES ]"
-    write "──────────────────────────────────────────────────────"
-
-    if check_cmd "systemctl"; then
-        # Count running services
-        SVC_COUNT=$(systemctl list-units --type=service --state=running \
-            --no-pager --no-legend 2>/dev/null | grep -c '\.service')
-        tee_line "  Total Running Services : $SVC_COUNT"
-        write ""
-
-        if [[ "$REPORT_TYPE" == "full" ]]; then
-            write "  [ All Running Services ]"
-            write "  $(printf '%-45s %-10s %s' 'SERVICE' 'STATE' 'DESCRIPTION')"
-            write "  $(printf '%-45s %-10s %s' '───────' '─────' '───────────')"
-            systemctl list-units --type=service --state=running \
-                --no-pager --no-legend 2>/dev/null \
-                | awk '/\.service/ {printf "  %-45s %-10s %s\n", $1, $3, $4}' \
-                >> "$TEMP_REPORT"
-
-            write ""
-            write "  [ Failed / Inactive Services (security concern) ]"
-            systemctl list-units --type=service --state=failed \
-                --no-pager --no-legend 2>/dev/null \
-                | awk '/\.service/ {print "  [!!] " $1}' >> "$TEMP_REPORT" \
-                || write "  (none)"
-        else
-            write "  [ Top Running Services ]"
-            systemctl list-units --type=service --state=running \
-                --no-pager --no-legend 2>/dev/null \
-                | awk '/\.service/ {print "  " $1}' | head -20 >> "$TEMP_REPORT"
-        fi
-    else
-        warn "systemctl not available — trying service command."
-        cmd_safe "service --status-all 2>&1" >> "$TEMP_REPORT"
-    fi
-
-    info "Services collected — $SVC_COUNT running."
-    log "Services collected: $SVC_COUNT running"
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 8 — ACTIVE PROCESSES
-#
-# KEY COMMANDS EXPLAINED:
-#   ps aux             : Show ALL processes from ALL users with details.
-#     a = all users, u = user-oriented format, x = include processes
-#         without a terminal (daemons)
-#   --sort=-%cpu       : Sort by CPU usage descending (highest first)
-#   awk 'NR>1'         : Skip the header line (NR = Number of Row)
-#   wc -l              : Count lines = count processes
-#
-# OUTPUT COLUMNS: USER | PID | %CPU | %MEM | COMMAND
-#
-# WHY THIS MATTERS IN CYBERSECURITY:
-#   Unusual processes (unknown names, running as root, high CPU) can indicate:
-#   - Cryptomining malware
-#   - Reverse shells
-#   - Keyloggers or spyware
-# ─────────────────────────────────────────────────────────────────────────────
-collect_processes() {
-    section "ACTIVE PROCESSES"
-    write ""
-    write "[ ACTIVE PROCESSES ]"
-    write "──────────────────────────────────────────────────────"
-
-    PROC_COUNT=$(ps aux 2>/dev/null | tail -n +2 | wc -l)
-    tee_line "  Total Active Processes : $PROC_COUNT"
-    write ""
-
-    if [[ "$REPORT_TYPE" == "full" ]]; then
-        write "  [ All Processes — Sorted by CPU Usage ]"
-        write "  $(printf '%-15s %-7s %-5s %-5s %s' 'USER' 'PID' '%CPU' '%MEM' 'COMMAND')"
-        write "  $(printf '%-15s %-7s %-5s %-5s %s' '────' '───' '────' '────' '───────')"
-        ps aux --sort=-%cpu 2>/dev/null \
-            | awk 'NR>1 {printf "  %-15s %-7s %-5s %-5s %s\n", $1,$2,$3,$4,$11}' \
-            >> "$TEMP_REPORT"
-    else
-        write "  [ Top 15 Processes by CPU Usage ]"
-        write "  $(printf '%-15s %-7s %-5s %-5s %s' 'USER' 'PID' '%CPU' '%MEM' 'COMMAND')"
-        ps aux --sort=-%cpu 2>/dev/null \
-            | awk 'NR>1 && NR<=16 {printf "  %-15s %-7s %-5s %-5s %s\n",$1,$2,$3,$4,$11}' \
-            >> "$TEMP_REPORT"
-    fi
-
-    # Always show processes running as root (security relevant)
-    write ""
-    write "  [ Processes Running as ROOT ]"
-    ps aux 2>/dev/null \
-        | awk 'NR>1 && $1=="root" {printf "  PID %-7s CPU %-5s CMD %s\n",$2,$3,$11}' \
-        | head -20 >> "$TEMP_REPORT"
-
-    info "Processes collected — $PROC_COUNT total."
-    log "Processes collected: $PROC_COUNT"
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 9 — LOGGED-IN USERS & SESSION HISTORY
-#
-# KEY COMMANDS EXPLAINED:
-#   who              : Shows currently logged-in users with terminal and time.
-#   w                : More detailed version of 'who' — also shows what they're doing.
-#   last -n 20       : Show last 20 login/logout events from /var/log/wtmp.
-#   lastb -n 20      : Show last 20 FAILED login attempts from /var/log/btmp.
-#                      Requires root privileges to read btmp.
-#   /etc/passwd      : File listing all system accounts.
-#                      Format: username:password:UID:GID:info:home:shell
-#                      grep -v 'nologin\|false' = keep only accounts with real shells
-#
-# WHY THIS MATTERS IN CYBERSECURITY:
-#   Failed logins = potential brute-force attack.
-#   Unexpected active users = unauthorized access.
-#   Accounts with UID=0 besides root = privilege escalation indicator.
-# ─────────────────────────────────────────────────────────────────────────────
-collect_users() {
-    section "USER ACCOUNTS & SESSIONS"
-    write ""
-    write "[ USER ACCOUNTS & SESSIONS ]"
-    write "──────────────────────────────────────────────────────"
-
-    write "  [ Currently Logged In ]"
-    who 2>/dev/null \
-        | awk '{printf "  User: %-15s Terminal: %-10s Login: %s %s\n",$1,$2,$3,$4}' \
-        >> "$TEMP_REPORT"
-
-    write ""
-    write "  [ System Accounts with Real Shells (from /etc/passwd) ]"
-    write "  $(printf '%-20s %-8s %s' 'USERNAME' 'UID' 'HOME')"
-    grep -v 'nologin\|false\|sync\|halt\|shutdown' /etc/passwd 2>/dev/null \
-        | awk -F: '{printf "  %-20s %-8s %s\n", $1, $3, $6}' \
-        >> "$TEMP_REPORT"
-
-    # Accounts with UID 0 (root-level) — should only be root itself
-    write ""
-    write "  [ Accounts with UID=0 (root-level — SECURITY CRITICAL) ]"
-    awk -F: '$3==0 {print "  [!!] " $1 " has UID=0 (root privileges)"}' \
-        /etc/passwd 2>/dev/null >> "$TEMP_REPORT"
-
-    if [[ "$REPORT_TYPE" == "full" ]]; then
-        write ""
-        write "  [ Last 20 Login Sessions ]"
-        last -n 20 2>/dev/null \
-            | awk 'NF>0 {printf "  %-12s %-10s %-18s %s %s\n",$1,$2,$3,$4,$5}' \
-            >> "$TEMP_REPORT"
-
-        write ""
-        write "  [ Failed Login Attempts — Last 20 (requires root) ]"
-        lastb -n 20 2>/dev/null >> "$TEMP_REPORT" \
-            || write "  (Run as root to view failed login attempts)"
-
-        write ""
-        write "  [ Auth Log — Recent sudo/su activity ]"
-        grep -i "sudo\|su:" /var/log/auth.log 2>/dev/null \
-            | tail -15 \
-            | awk '{print "  " $0}' >> "$TEMP_REPORT" \
-            || write "  (Cannot read /var/log/auth.log — try as root)"
-    fi
-
-    info "User sessions collected."
-    log "User sessions collected."
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 10 — OPEN NETWORK PORTS
-#
-# KEY COMMANDS EXPLAINED:
-#   ss -tulnp        : Socket Statistics — show all open ports.
-#     -t = TCP sockets
-#     -u = UDP sockets
-#     -l = only LISTENING sockets (waiting for connections)
-#     -n = numeric (don't resolve names — faster and more accurate)
-#     -p = show the process name/PID using each socket
-#
-#   Alternative: netstat -tulnp (older tool, same flags)
-#
-# OUTPUT: Protocol | Local Address:Port | Process
-#
-# WHY THIS MATTERS IN CYBERSECURITY:
-#   Open ports = doors into your system.
-#   Every open port is a potential entry point for attackers.
-#   Unexpected open ports = possible backdoor or misconfigured service.
-#   Example: port 4444 open = classic Metasploit reverse shell indicator.
-# ─────────────────────────────────────────────────────────────────────────────
-collect_ports() {
-    section "OPEN NETWORK PORTS"
-    write ""
-    write "[ OPEN NETWORK PORTS ]"
-    write "──────────────────────────────────────────────────────"
-    write "  NOTE: Open ports = potential attack surface."
-    write "  Review unexpected ports carefully."
-    write ""
-
-    if check_cmd "ss"; then
-        write "  [ Listening TCP & UDP Ports (via ss) ]"
-        write "  $(printf '%-6s %-28s %-28s %s' 'PROTO' 'LOCAL ADDRESS' 'PEER ADDRESS' 'PROCESS')"
-        write "  $(printf '%-6s %-28s %-28s %s' '─────' '─────────────' '────────────' '───────')"
-        ss -tulnp 2>/dev/null \
-            | awk 'NR>1 {printf "  %-6s %-28s %-28s %s\n",$1,$5,$6,$7}' \
-            >> "$TEMP_REPORT"
-    elif check_cmd "netstat"; then
-        write "  [ Listening Ports (via netstat) ]"
-        netstat -tulnp 2>/dev/null >> "$TEMP_REPORT"
-    else
-        warn "Neither ss nor netstat available."
-        write "  [WARN] ss and netstat not found."
-    fi
-
-    # Flag commonly dangerous open ports
-    write ""
-    write "  [ High-Risk Port Check ]"
-    RISKY_PORTS="23 21 512 513 514 1080 4444 5900 6666 31337"
-    for port in $RISKY_PORTS; do
-        if ss -tulnp 2>/dev/null | grep -q ":$port "; then
-            warn "  [RISK] Port $port is OPEN — review immediately!"
-            write "  [!!] RISK: Port $port is open — potential security issue!"
-        fi
+progress() {
+    local label="$1" duration="${2:-1.0}"
+    # Adaptive bar width — leaves room for label + brackets + percentage
+    local label_len=${#label}
+    local bar_w=$(( TW - label_len - 12 ))
+    (( bar_w > 40 )) && bar_w=40
+    (( bar_w < 5  )) && bar_w=5
+    echo -en "  ${DM}${label}${NC} ${G0}["
+    local t; t=$(echo "scale=4; $duration / $bar_w" | bc 2>/dev/null || echo "0.03")
+    for ((i=0; i<bar_w; i++)); do
+        (( i < bar_w/3 ))                    && echo -en "${DM}█${NC}"
+        (( i >= bar_w/3 && i < bar_w*2/3 ))  && echo -en "${G0}█${NC}"
+        (( i >= bar_w*2/3 ))                  && echo -en "${G1}█${NC}"
+        sleep "$t"
     done
-    write "  [ OK ] High-risk port scan complete."
-
-    info "Open ports collected."
-    log "Open ports collected."
+    echo -e "${G1}] 100%${NC}"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 11 — SCHEDULED CRON JOBS
-#
-# KEY COMMANDS EXPLAINED:
-#   crontab -l       : List the current user's scheduled cron jobs.
-#   /etc/cron.d/     : System-wide cron jobs (added by packages).
-#   /etc/cron.daily/ : Scripts that run every day automatically.
-#   /etc/crontab     : The main system crontab file.
-#
-# CRON JOB FORMAT REMINDER:
-#   minute hour day month weekday command
-#   *      *    *   *     *       = every minute/hour/day/month/weekday
-#
-# WHY THIS MATTERS IN CYBERSECURITY:
-#   Malicious cron jobs are one of the most common persistence mechanisms.
-#   After compromising a system, attackers add cron jobs to maintain access.
-#   Auditing cron jobs regularly helps detect this technique.
-# ─────────────────────────────────────────────────────────────────────────────
-collect_cron() {
-    section "SCHEDULED CRON JOBS"
-    write ""
-    write "[ SCHEDULED CRON JOBS ]"
-    write "──────────────────────────────────────────────────────"
-    write "  SECURITY NOTE: Unexpected cron jobs = possible persistence mechanism."
-    write ""
 
-    write "  [ Current User Crontab ]"
-    crontab -l 2>/dev/null >> "$TEMP_REPORT" \
-        || write "  (No crontab for current user)"
 
-    write ""
-    write "  [ /etc/crontab (System) ]"
-    cat /etc/crontab 2>/dev/null \
-        | grep -v '^#\|^$' \
-        | awk '{print "  " $0}' >> "$TEMP_REPORT" \
-        || write "  (Cannot read /etc/crontab)"
+# ============================================================================
+# BOOT HEADER
+# ============================================================================
 
-    write ""
-    write "  [ Cron Directories ]"
-    for dir in /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly; do
-        if [[ -d "$dir" ]]; then
-            FILE_COUNT=$(ls "$dir" 2>/dev/null | wc -l)
-            write "  $dir  ($FILE_COUNT files)"
-            ls -la "$dir" 2>/dev/null | awk 'NR>1 {print "    " $0}' >> "$TEMP_REPORT"
-        fi
-    done
+clear
+print_banner "SOFTWARE" "Advanced Software & Security Audit  |  Phase 1  |  v2.0"
+type_header ">>> INITIALIZING SOFTWARE SCANNER..."
+progress "Enumerating OS metadata    " 0.9
+progress "Indexing installed packages" 1.0
+progress "Probing security layer     " 0.8
+echo ""
 
-    # Check for cron jobs running suspicious commands
-    write ""
-    write "  [ Suspicious Cron Pattern Check ]"
-    SUSPICIOUS=$(grep -r "wget\|curl\|nc \|bash -i\|/tmp/" \
-        /etc/cron* /var/spool/cron* 2>/dev/null)
-    if [[ -n "$SUSPICIOUS" ]]; then
-        warn "Suspicious cron patterns detected!"
-        write "  [!!] WARNING — Suspicious cron entries found:"
-        echo "$SUSPICIOUS" | awk '{print "  " $0}' >> "$TEMP_REPORT"
-    else
-        write "  [ OK ] No suspicious cron patterns found."
-    fi
+section "OPERATING SYSTEM & KERNEL"
 
-    info "Cron jobs collected."
-    log "Cron jobs collected."
-}
+OS_NAME=$(grep "^PRETTY_NAME" /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')
+OS_ID=$(grep "^ID=" /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')
+KERNEL_VER=$(uname -rs)
+ARCH=$(uname -m)
+HOSTNAME=$(hostname)
+UPTIME_VAL=$(uptime -p 2>/dev/null || uptime)
+LAST_BOOT=$(who -b 2>/dev/null | awk '{print $3, $4}')
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 12 — CYBERSECURITY AUDIT CHECKS
-#
-# This section implements the advanced security checks.
-# Each check looks for a specific class of vulnerability or misconfiguration.
-# ─────────────────────────────────────────────────────────────────────────────
-collect_security() {
-    section "SECURITY AUDIT CHECKS"
-    write ""
-    write "[ CYBERSECURITY AUDIT CHECKS ]"
-    write "══════════════════════════════════════════════════════"
+print_field "OS"           "$OS_NAME"
+print_field "Distro ID"    "$OS_ID"
+print_field "Kernel"       "$KERNEL_VER"
+print_field "Architecture" "$ARCH"
+print_field "Hostname"     "$HOSTNAME"
+print_field "Uptime"       "$UPTIME_VAL"
+print_field "Last Boot"    "${LAST_BOOT:-"N/A"}"
+print_ok "OS information collected"
 
-    # ── 12.1 CPU Usage Alert ─────────────────────────────────────────────
-    # top -bn1 = run top once (-n1) in batch mode (-b), no interaction
-    # grep "Cpu(s)" finds the CPU usage summary line
-    # The 'id' field = idle percentage; we subtract from 100 to get used %
-    write ""
-    write "  [ CPU Usage Check ]"
-    CPU_IDLE=$(top -bn1 2>/dev/null \
-        | grep -i "cpu" \
-        | grep -v "top\|load" \
-        | head -1 \
-        | awk '{for(i=1;i<=NF;i++) if($i~/id,/ || $(i-1)~/id/) print $(i-1)}' \
-        | tr -d ',' | cut -d'.' -f1)
+# ============================================================================
+# 2. USERS & SECURITY
+# ============================================================================
 
-    if [[ -n "$CPU_IDLE" ]] && [[ "$CPU_IDLE" =~ ^[0-9]+$ ]]; then
-        CPU_USED=$((100 - CPU_IDLE))
-        if [[ $CPU_USED -gt 80 ]]; then
-            warn "CPU usage is ${CPU_USED}% — ABOVE 80% THRESHOLD!"
-            write "  [!!] WARNING: CPU at ${CPU_USED}% — possible resource exhaustion or malware!"
-        else
-            write "  [ OK ] CPU usage: ${CPU_USED}% — within normal range."
-        fi
-    else
-        write "  [ OK ] CPU check complete (unable to parse exact value)."
-    fi
+section "USER ACCOUNTS & PRIVILEGES"
 
-    # ── 12.2 SUID Files ──────────────────────────────────────────────────
-    # SUID = Set User ID bit. When set on an executable, it runs with the
-    # FILE OWNER's privileges (often root) regardless of who runs it.
-    # Attackers look for writable SUID files to escalate to root.
-    # find / -perm -4000 = find files where the SUID bit (4000) is set
-    write ""
-    write "  [ SUID Files — Privilege Escalation Risk ]"
-    write "  (Files that run as their owner, often root)"
-    SUID_COUNT=0
-    while IFS= read -r file; do
-        write "  [SUID] $file"
-        ((SUID_COUNT++))
-    done < <(find / -perm -4000 -type f 2>/dev/null | head -40)
-    write "  Total SUID files found: $SUID_COUNT"
-    [[ $SUID_COUNT -gt 20 ]] && \
-        write "  [!!] WARNING: High SUID count ($SUID_COUNT) — review carefully."
+CURRENT_USER=$(whoami)
+LOGGED_IN=$(who 2>/dev/null | awk '{print $1}' | sort -u | xargs)
+SUDO_USERS=$(grep '^sudo:' /etc/group 2>/dev/null | cut -d: -f4)
+ROOT_LOGIN=$(grep "^PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' || echo "N/A")
+PASSWD_HASH=$(grep "^root:" /etc/shadow 2>/dev/null | cut -d: -f2 | cut -c1-6 || echo "[no access]")
+TOTAL_USERS=$(grep -c "^[^#]" /etc/passwd 2>/dev/null)
 
-    # ── 12.3 World-Writable Files ─────────────────────────────────────────
-    # -perm -0002 = the 'write' bit is set for 'other' (everyone)
-    # These files can be modified by ANY user — dangerous for config files.
-    write ""
-    write "  [ World-Writable Files (Top 20) ]"
-    write "  (Files any user can modify — potential tampering risk)"
-    find / -perm -0002 -type f \
-        -not -path "/proc/*" \
-        -not -path "/sys/*" \
-        2>/dev/null | head -20 \
-        | awk '{print "  [WRITE] " $0}' >> "$TEMP_REPORT"
+print_field "Current User"    "$CURRENT_USER"
+print_field "Active Sessions" "${LOGGED_IN:-"None"}"
+print_field "Sudo Admins"     "${SUDO_USERS:-"None"}"
+print_field "Total Accounts"  "$TOTAL_USERS"
+print_field "Root SSH Login"  "$ROOT_LOGIN"
+print_field "Root Hash Hint"  "$PASSWD_HASH"
 
-    # ── 12.4 Firewall Status ──────────────────────────────────────────────
-    write ""
-    write "  [ Firewall Status ]"
-    if check_cmd "ufw"; then
-        UFW_STATUS=$(ufw status 2>/dev/null)
-        echo "$UFW_STATUS" | awk '{print "  " $0}' >> "$TEMP_REPORT"
-        echo "$UFW_STATUS" | grep -q "inactive" && \
-            warn "Firewall (ufw) is INACTIVE — system is unprotected!"
-    elif check_cmd "iptables"; then
-        RULES=$(iptables -L -n --line-numbers 2>/dev/null | head -30)
-        echo "$RULES" | awk '{print "  " $0}' >> "$TEMP_REPORT"
-    else
-        write "  [WARN] No firewall tool found (ufw/iptables)."
-    fi
-
-    # ── 12.5 SSH Hardening Check ─────────────────────────────────────────
-    # /etc/ssh/sshd_config controls how the SSH daemon behaves.
-    # Bad settings = easy remote compromise.
-    write ""
-    write "  [ SSH Security Configuration ]"
-    SSH_CFG="/etc/ssh/sshd_config"
-    if [[ -f "$SSH_CFG" ]]; then
-        declare -A SSH_RISKS=(
-            ["PermitRootLogin"]="yes"
-            ["PasswordAuthentication"]="yes"
-            ["X11Forwarding"]="yes"
-            ["PermitEmptyPasswords"]="yes"
-        )
-        for setting in PermitRootLogin PasswordAuthentication \
-                        X11Forwarding MaxAuthTries \
-                        PubkeyAuthentication PermitEmptyPasswords Protocol; do
-            VALUE=$(grep -i "^${setting}" "$SSH_CFG" 2>/dev/null \
-                | awk '{print $2}' | head -1)
-            VALUE="${VALUE:-default}"
-            RISK=""
-            [[ "$setting" == "PermitRootLogin" && "$VALUE" == "yes" ]] && \
-                RISK=" [!!] RISK: Root login allowed!"
-            [[ "$setting" == "PermitEmptyPasswords" && "$VALUE" == "yes" ]] && \
-                RISK=" [!!] RISK: Empty passwords allowed!"
-            printf "  %-30s : %-10s%s\n" "$setting" "$VALUE" "$RISK" >> "$TEMP_REPORT"
-        done
-    else
-        write "  SSH config not found or not readable."
-    fi
-
-    # ── 12.6 Password Policy ─────────────────────────────────────────────
-    write ""
-    write "  [ Password Policy (/etc/login.defs) ]"
-    for setting in PASS_MAX_DAYS PASS_MIN_DAYS PASS_MIN_LEN PASS_WARN_AGE; do
-        VALUE=$(grep "^$setting" /etc/login.defs 2>/dev/null | awk '{print $2}')
-        printf "  %-20s : %s\n" "$setting" "${VALUE:-not set}" >> "$TEMP_REPORT"
-    done
-
-    # ── 12.7 Sudo Privileges ─────────────────────────────────────────────
-    write ""
-    write "  [ Sudo Privileges — Who Can Run sudo? ]"
-    grep -v '^#\|^$' /etc/sudoers 2>/dev/null \
-        | awk '{print "  " $0}' >> "$TEMP_REPORT" \
-        || write "  (Permission denied — run as root to view sudoers)"
-
-    # ── 12.8 Listening on all interfaces (0.0.0.0) ───────────────────────
-    write ""
-    write "  [ Services Listening on ALL Interfaces (0.0.0.0) ]"
-    write "  (These are reachable from the network — high exposure)"
-    ss -tulnp 2>/dev/null \
-        | grep "0.0.0.0\|:::" \
-        | awk '{printf "  [EXPOSED] %-6s %s  %s\n", $1, $5, $7}' \
-        >> "$TEMP_REPORT"
-
-    info "Security checks completed."
-    log "Security checks completed."
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 13 — ENVIRONMENT & SHELL
-#
-# PATH hijacking = attacker places a malicious binary early in PATH.
-# When you run 'ls', it runs their 'ls' instead of /bin/ls.
-# Auditing PATH catches this attack.
-# ─────────────────────────────────────────────────────────────────────────────
-collect_environment() {
-    if [[ "$REPORT_TYPE" == "full" ]]; then
-        section "ENVIRONMENT & SHELL"
-        write ""
-        write "[ ENVIRONMENT & SHELL ]"
-        write "──────────────────────────────────────────────────────"
-
-        write "  [ Current Shell ]"
-        write "  $SHELL"
-
-        write ""
-        write "  [ PATH Variable (each directory on its own line) ]"
-        echo "$PATH" | tr ':' '\n' | awk '{print "  " $0}' >> "$TEMP_REPORT"
-
-        # Check for suspicious PATH entries (writable dirs, /tmp in PATH)
-        write ""
-        write "  [ PATH Security Check ]"
-        echo "$PATH" | tr ':' '\n' | while read -r dir; do
-            if [[ "$dir" == "/tmp" ]] || [[ "$dir" == "." ]]; then
-                write "  [!!] RISK: '$dir' in PATH — PATH hijacking risk!"
-            elif [[ -w "$dir" ]] 2>/dev/null; then
-                write "  [WARN] '$dir' is world-writable — review PATH."
-            fi
-        done
-
-        write ""
-        write "  [ Key Environment Variables ]"
-        env 2>/dev/null \
-            | grep -E '^(HOME|USER|SHELL|LANG|TERM|SUDO_USER|LOGNAME)' \
-            | awk '{print "  " $0}' >> "$TEMP_REPORT"
-    fi
-
-    info "Environment info collected."
-    log "Environment info collected."
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 14 — SAVE REPORT & SHA256 INTEGRITY HASH
-#
-# SHA256 = a cryptographic hash function.
-# It produces a unique 64-character "fingerprint" of a file.
-# If even one character in the file changes, the hash completely changes.
-# We store the hash alongside the report — if someone tampers with the report,
-# you can detect it by recomputing the hash and comparing.
-# This is called "log integrity verification."
-# ─────────────────────────────────────────────────────────────────────────────
-save_report() {
-    # Append report footer
-    write ""
-    write "=============================================================="
-    write "  END OF SOFTWARE AUDIT REPORT"
-    write "  Hostname  : $HOSTNAME_VAL"
-    write "  Completed : $(date '+%Y-%m-%d %H:%M:%S')"
-    write "=============================================================="
-
-    # Define final output filename
-    REPORT_FILE="$REPORT_DIR/software_audit_${REPORT_TYPE}_${TIMESTAMP}.txt"
-
-    # Copy temp file to final location
-    cp "$TEMP_REPORT" "$REPORT_FILE"
-    rm -f "$TEMP_REPORT"
-
-    # Generate SHA256 integrity hash
-    # sha256sum outputs: HASH  FILENAME — we take only the hash part
-    HASH=$(sha256sum "$REPORT_FILE" 2>/dev/null | awk '{print $1}')
-    echo "$HASH" > "${REPORT_FILE}.sha256"
-
-    # Append hash to end of report for easy reference
-    echo "" >> "$REPORT_FILE"
-    echo "  SHA256 Integrity Hash : $HASH" >> "$REPORT_FILE"
-    echo "  Hash File             : ${REPORT_FILE}.sha256" >> "$REPORT_FILE"
-
-    echo ""
-    info "Report saved → $REPORT_FILE"
-    info "SHA256 hash  → $HASH"
-    echo ""
-
-    # Export path so send_reports.sh can find it without searching
-    export LAST_SOFTWARE_REPORT="$REPORT_FILE"
-
-    log "Report saved: $REPORT_FILE | SHA256: $HASH"
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 15 — MAIN EXECUTION
-# This is where the script orchestrates all sections in order.
-# ─────────────────────────────────────────────────────────────────────────────
-main() {
-    echo ""
-    echo "=================================================="
-    echo "  >>> SOFTWARE AUDIT MODULE — Initializing..."
-    echo "  Hostname : $HOSTNAME_VAL"
-    echo "  Mode     : $REPORT_TYPE"
-    echo "  Output   : $REPORT_DIR"
-    echo "=================================================="
-    echo ""
-
-    # Validate mode argument
-    case "$MODE" in
-        --short|--full|--gui) ;;
-        *)
-            warn "Unknown mode '$MODE' — defaulting to full."
-            MODE="--full"; REPORT_TYPE="full"
-            ;;
-    esac
-
-    setup_dirs            # Create output directories
-    write_header          # Write report identification block
-
-    collect_os_info       # Section 5 — OS name, kernel, uptime
-    collect_packages      # Section 6 — installed packages
-    collect_services      # Section 7 — running services
-    collect_processes     # Section 8 — active processes
-    collect_users         # Section 9 — logged-in users, sessions
-    collect_ports         # Section 10 — open network ports
-    collect_cron          # Section 11 — scheduled cron jobs
-    collect_security      # Section 12 — cybersecurity checks
-    collect_environment   # Section 13 — environment variables
-
-    save_report           # Section 14 — save file + SHA256 hash
-
-    echo ""
-    echo "[ OK ] Software audit complete!"
-    echo "[ OK ] Report saved → $REPORT_DIR"
-    echo ""
-
-    log "Software audit complete."
-}
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Entry point: only run main() when executed directly (not sourced)
-# BASH_SOURCE[0] == $0 means "this script is being run, not imported"
-# ─────────────────────────────────────────────────────────────────────────────
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    main "$@"
+# Warn if root login is enabled
+if [ "$ROOT_LOGIN" = "yes" ]; then
+    print_warn "Root SSH login is ENABLED — security risk!"
+else
+    print_ok "User accounts enumerated"
 fi
+
+# ============================================================================
+# 3. PROCESSES & SERVICES
+# ============================================================================
+
+section "PROCESSES & SERVICES"
+
+PROC_COUNT=$(ps aux 2>/dev/null | wc -l)
+RUNNING_SERVICES=$(systemctl list-units --type=service --state=running --no-legend 2>/dev/null | wc -l)
+FAILED_SERVICES=$(systemctl list-units --type=service --state=failed  --no-legend 2>/dev/null | wc -l)
+
+print_field "Total Processes"    "$PROC_COUNT"
+print_field "Running Services"   "$RUNNING_SERVICES"
+if (( FAILED_SERVICES > 0 )); then
+    print_warn "Failed Services: $FAILED_SERVICES"
+else
+    print_field "Failed Services" "0"
+fi
+
+echo ""
+echo -e "  ${DM}Top 5 CPU consumers:${NC}"
+echo -e "  ${G0}%-6s %-6s %-20s${NC}" "CPU%" "MEM%" "COMMAND"
+echo -e "  ${DM}$(repeat_char '─' 38)${NC}"
+ps -eo %cpu,%mem,comm --sort=-%cpu 2>/dev/null | head -6 | tail -5 | while read cpu mem cmd; do
+    if (( ${cpu%.*} > 50 )); then
+        echo -e "  ${YW}${cpu}%   ${mem}%   ${cmd}${NC}"
+    else
+        echo -e "  ${G0}${cpu}%   ${mem}%   ${G1}${cmd}${NC}"
+    fi
+done
+print_ok "Process analysis complete"
+
+# ============================================================================
+# 4. OPEN PORTS & NETWORK EXPOSURE
+# ============================================================================
+
+section "NETWORK EXPOSURE (OPEN PORTS)"
+
+echo -e "  ${DM}$(printf '%-25s %-15s %-20s' 'LOCAL ADDRESS' 'STATE' 'PROGRAM')${NC}"
+echo -e "  ${G0}$(repeat_char '─' 62)${NC}"
+
+sudo ss -tulnp 2>/dev/null | grep LISTEN | while read proto recvq sendq local remote state proc; do
+    prog=$(echo "$proc" | grep -oP '"[^"]+"' | tr -d '"' | head -1)
+    prog="${prog:-unknown}"
+    port=$(echo "$local" | rev | cut -d: -f1 | rev)
+
+    # Color by well-known ports
+    if [[ "$port" =~ ^(22|23|21)$ ]]; then
+        echo -e "  ${YW}$(printf '%-25s %-15s %-20s' "$local" "LISTEN" "$prog")${NC}"
+    elif [[ "$port" =~ ^(80|443|8080|8443)$ ]]; then
+        echo -e "  ${CY}$(printf '%-25s %-15s %-20s' "$local" "LISTEN" "$prog")${NC}"
+    else
+        echo -e "  ${G0}$(printf '%-25s %-15s %-20s' "$local" "LISTEN" "$prog")${NC}"
+    fi
+done
+print_ok "Network port scan complete"
+
+# ============================================================================
+# 5. PACKAGE MANAGER
+# ============================================================================
+
+section "PACKAGE INVENTORY"
+
+if command -v dpkg &>/dev/null; then
+    PKGS=$(dpkg -l 2>/dev/null | wc -l)
+    MGR="APT/DPKG (Debian-based)"
+    UPDATES=$(apt list --upgradable 2>/dev/null | grep -vc "Listing")
+elif command -v rpm &>/dev/null; then
+    PKGS=$(rpm -qa 2>/dev/null | wc -l)
+    MGR="RPM (Red Hat-based)"
+    UPDATES=0
+elif command -v pacman &>/dev/null; then
+    PKGS=$(pacman -Q 2>/dev/null | wc -l)
+    MGR="Pacman (Arch-based)"
+    UPDATES=0
+else
+    PKGS="Unknown"
+    MGR="Unknown"
+    UPDATES="Unknown"
+fi
+
+print_field "Package Manager"   "$MGR"
+print_field "Installed Packages" "$PKGS"
+if [[ "$UPDATES" =~ ^[0-9]+$ ]] && (( UPDATES > 0 )); then
+    print_warn "Pending Updates: $UPDATES available"
+else
+    print_field "Pending Updates"  "${UPDATES}"
+    print_ok "System is up to date"
+fi
+
+# ============================================================================
+# 6. FIREWALL STATUS
+# ============================================================================
+
+section "FIREWALL & SECURITY"
+
+# UFW
+if command -v ufw &>/dev/null; then
+    UFW_STATUS=$(sudo ufw status 2>/dev/null | grep "Status:" | awk '{print $2}')
+    print_field "UFW Firewall" "${UFW_STATUS:-"inactive"}"
+    if [ "$UFW_STATUS" = "active" ]; then
+        print_ok "UFW firewall is active"
+    else
+        print_warn "UFW firewall is INACTIVE"
+    fi
+fi
+
+# iptables rule count
+if command -v iptables &>/dev/null; then
+    IPT_RULES=$(sudo iptables -L 2>/dev/null | grep -c "^[A-Z]" || echo "N/A")
+    print_field "iptables chains" "$IPT_RULES"
+fi
+
+# SELinux / AppArmor
+if command -v getenforce &>/dev/null; then
+    print_field "SELinux" "$(getenforce 2>/dev/null)"
+elif command -v aa-status &>/dev/null; then
+    AA=$(sudo aa-status 2>/dev/null | grep "profiles are" | head -1 | xargs)
+    print_field "AppArmor" "${AA:-"present"}"
+fi
+
+# Last login
+LAST_LOGIN=$(last -n 3 2>/dev/null | head -3 | awk '{print $1,$3,$4,$5,$6}')
+echo ""
+echo -e "  ${DM}Last login records:${NC}"
+echo "$LAST_LOGIN" | while read line; do
+    [ -n "$line" ] && echo -e "  ${G0}▸${NC} ${WH}${line}${NC}"
+done
+print_ok "Security audit complete"
+
+# ============================================================================
+# SAVE TO JSON
+# ============================================================================
+
+echo ""
+echo -e "${DM}"
+repeat_char '─' $TW
+echo -e "${NC}"
+echo ""
+
+if (( GUI_MODE == 1 )); then
+    save_choice="y"
+    echo -e "  ${G1}[AUTO]${NC}  GUI mode — saving JSON automatically..."
+else
+    echo -en "  ${G1}root@nscs-audit${NC}:${G0}~${NC}${DM}\$${NC} Save audit to JSON? ${DM}[y/n]${NC}: "
+    read -r save_choice
+fi
+
+if [[ "$save_choice" =~ ^[Yy]$ ]]; then
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    FILE_NAME="$REPORT_DIR/software_report_${TIMESTAMP}.json"
+
+    progress "Writing JSON report        " 0.8
+
+    cat <<EOF > "$FILE_NAME"
+{
+  "timestamp": "$(date)",
+  "report_type": "software_audit",
+  "os_details": {
+    "name": "$OS_NAME",
+    "kernel": "$KERNEL_VER",
+    "arch": "$ARCH",
+    "hostname": "$HOSTNAME",
+    "uptime": "$UPTIME_VAL",
+    "last_boot": "$LAST_BOOT"
+  },
+  "security": {
+    "current_user": "$CURRENT_USER",
+    "sudo_users": "$SUDO_USERS",
+    "total_accounts": "$TOTAL_USERS",
+    "root_ssh_login": "$ROOT_LOGIN",
+    "updates_available": "$UPDATES"
+  },
+  "activity": {
+    "processes": "$PROC_COUNT",
+    "running_services": "$RUNNING_SERVICES",
+    "failed_services": "$FAILED_SERVICES",
+    "packages": "$PKGS",
+    "package_manager": "$MGR"
+  }
+}
+EOF
+    echo ""
+    print_ok "Report saved ${G1}→${NC} ${WH}$FILE_NAME${NC}"
+else
+    echo ""
+    print_info "Report discarded — no file saved."
+fi
+
+echo ""
+echo -e "${DM}"
+divider '═'
+echo -e "${NC}"
+center_print "${G0}Software Audit Complete  |  $(date '+%H:%M:%S')${NC}"
+echo -e "${DM}"
+divider '▄'
+echo -e "${NC}"
+echo ""
