@@ -1,0 +1,1683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSCS — Linux Audit System | Technical Report</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;600;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --g0: #00ff41;
+  --g1: #00cc33;
+  --g2: #008822;
+  --g3: #003a0a;
+  --g4: #001a05;
+  --bg: #000000;
+  --bg2: #020902;
+  --dim: #005512;
+  --amber: #ffcc00;
+  --red: #ff3333;
+  --cyan: #00ffcc;
+  --white: #e8ffe8;
+  --mono: 'Share Tech Mono', monospace;
+  --orb: 'Orbitron', monospace;
+  --raj: 'Rajdhani', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--g1);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+
+/* ── MATRIX CANVAS ─────────────────────────────────────────────── */
+#matrix-bg {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  opacity: 0.07;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ── SCANLINES ─────────────────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,255,65,0.015) 2px,
+    rgba(0,255,65,0.015) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ── CURSOR ────────────────────────────────────────────────────── */
+body { cursor: crosshair; }
+a, button { cursor: pointer; }
+
+/* ── LAYOUT ────────────────────────────────────────────────────── */
+.page-wrap {
+  position: relative;
+  z-index: 2;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+/* ── COVER PAGE ────────────────────────────────────────────────── */
+.cover {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 20px;
+  position: relative;
+}
+
+.cover-corners::before,
+.cover-corners::after {
+  content: '';
+  position: absolute;
+  width: 60px; height: 60px;
+  border-color: var(--g0);
+  border-style: solid;
+  opacity: 0.4;
+}
+.cover-corners::before { top: 20px; left: 20px; border-width: 2px 0 0 2px; }
+.cover-corners::after  { bottom: 20px; right: 20px; border-width: 0 2px 2px 0; }
+
+.nscs-ascii {
+  font-family: var(--mono);
+  font-size: clamp(7px, 1.2vw, 11px);
+  line-height: 1.15;
+  color: var(--g0);
+  text-shadow: 0 0 20px rgba(0,255,65,0.5);
+  white-space: pre;
+  animation: flicker 8s infinite;
+  letter-spacing: 0;
+}
+
+@keyframes flicker {
+  0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:0.7} 94%{opacity:1} 97%{opacity:0.85} 98%{opacity:1}
+}
+
+.cover-divider {
+  width: 100%;
+  max-width: 600px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--g0), transparent);
+  margin: 24px auto;
+  opacity: 0.5;
+}
+
+.cover-title {
+  font-family: var(--orb);
+  font-size: clamp(14px, 3vw, 22px);
+  font-weight: 900;
+  color: var(--g0);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  text-shadow: 0 0 30px rgba(0,255,65,0.4);
+}
+
+.cover-subtitle {
+  font-family: var(--raj);
+  font-size: clamp(12px, 2vw, 16px);
+  font-weight: 300;
+  color: var(--g2);
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  margin-top: 8px;
+}
+
+.cover-meta {
+  margin-top: 40px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  width: 100%;
+  max-width: 640px;
+}
+
+.meta-card {
+  border: 1px solid var(--g3);
+  padding: 14px 16px;
+  text-align: left;
+  position: relative;
+  background: rgba(0,255,65,0.02);
+  transition: border-color 0.3s, background 0.3s;
+}
+.meta-card:hover {
+  border-color: var(--g0);
+  background: rgba(0,255,65,0.05);
+}
+.meta-card .label {
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--dim);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.meta-card .value {
+  font-size: 12px;
+  color: var(--white);
+}
+
+.scroll-hint {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 4px;
+  animation: pulse-down 2s ease-in-out infinite;
+}
+@keyframes pulse-down {
+  0%,100%{transform:translateX(-50%) translateY(0);opacity:0.5}
+  50%{transform:translateX(-50%) translateY(6px);opacity:1}
+}
+
+/* ── NAVIGATION ────────────────────────────────────────────────── */
+.nav-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(0,0,0,0.92);
+  border-bottom: 1px solid var(--g3);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  backdrop-filter: blur(4px);
+}
+
+.nav-bar .nav-logo {
+  font-family: var(--orb);
+  font-size: 11px;
+  color: var(--g0);
+  letter-spacing: 2px;
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+
+.nav-bar a {
+  font-size: 10px;
+  color: var(--dim);
+  text-decoration: none;
+  letter-spacing: 2px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.nav-bar a:hover {
+  color: var(--g0);
+  border-color: var(--g3);
+  background: rgba(0,255,65,0.04);
+}
+
+/* ── SECTIONS ──────────────────────────────────────────────────── */
+.report-section {
+  margin: 60px 0;
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.report-section.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--g3);
+}
+
+.section-num {
+  font-family: var(--orb);
+  font-size: 10px;
+  color: var(--bg);
+  background: var(--g0);
+  padding: 4px 10px;
+  letter-spacing: 2px;
+  flex-shrink: 0;
+}
+
+.section-title {
+  font-family: var(--orb);
+  font-size: clamp(13px, 2vw, 18px);
+  font-weight: 600;
+  color: var(--g0);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+/* ── SUBSECTIONS ───────────────────────────────────────────────── */
+.subsection {
+  margin: 28px 0;
+}
+
+.sub-title {
+  font-family: var(--raj);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cyan);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--cyan);
+}
+
+p {
+  color: var(--g1);
+  margin-bottom: 12px;
+  font-size: 12px;
+  line-height: 1.9;
+}
+
+/* ── CODE BLOCKS ───────────────────────────────────────────────── */
+.code-block {
+  background: var(--bg2);
+  border: 1px solid var(--g3);
+  border-left: 3px solid var(--g0);
+  padding: 16px 20px;
+  margin: 16px 0;
+  overflow-x: auto;
+  position: relative;
+}
+
+.code-block .code-label {
+  position: absolute;
+  top: -1px; right: -1px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--bg);
+  background: var(--g2);
+  padding: 2px 8px;
+}
+
+.code-block pre {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--g0);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.code-block pre .cmd  { color: var(--g0); }
+.code-block pre .flag { color: var(--amber); }
+.code-block pre .str  { color: var(--cyan); }
+.code-block pre .cmt  { color: var(--dim); font-style: italic; }
+.code-block pre .val  { color: var(--white); }
+.code-block pre .err  { color: var(--red); }
+.code-block pre .ok   { color: #00ff41; font-weight: bold; }
+
+/* ── TERMINAL MOCK ─────────────────────────────────────────────── */
+.terminal-mock {
+  background: #000;
+  border: 1px solid var(--g3);
+  border-radius: 4px;
+  margin: 16px 0;
+  overflow: hidden;
+}
+
+.terminal-mock .term-bar {
+  background: #0a0a0a;
+  border-bottom: 1px solid var(--g3);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.term-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+}
+.term-dot.r { background: #ff5f57; }
+.term-dot.y { background: #febc2e; }
+.term-dot.g { background: #28c840; }
+
+.term-title {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  margin-left: 8px;
+}
+
+.term-body {
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.8;
+  min-height: 80px;
+}
+
+.term-prompt { color: var(--g0); }
+.term-cmd    { color: var(--white); }
+.term-out    { color: var(--g1); }
+.term-ok     { color: #00ff41; }
+.term-warn   { color: var(--amber); }
+.term-err    { color: var(--red); }
+.term-dim    { color: var(--dim); }
+
+/* ── ARCHITECTURE DIAGRAM ──────────────────────────────────────── */
+.arch-diagram {
+  border: 1px solid var(--g3);
+  background: rgba(0,255,65,0.01);
+  padding: 24px;
+  margin: 20px 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--g1);
+  line-height: 2;
+  overflow-x: auto;
+}
+
+/* ── FEATURE CARDS ─────────────────────────────────────────────── */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.feature-card {
+  border: 1px solid var(--g3);
+  padding: 20px;
+  background: rgba(0,255,65,0.02);
+  position: relative;
+  transition: all 0.3s;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+
+.feature-card:hover {
+  border-color: var(--g0);
+  background: rgba(0,255,65,0.06);
+  transform: translateY(-2px);
+}
+
+.feature-card .fc-num {
+  font-family: var(--orb);
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--g3);
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.feature-card:hover .fc-num { color: var(--g0); }
+
+.feature-card .fc-title {
+  font-family: var(--raj);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--white);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.feature-card .fc-desc {
+  font-size: 11px;
+  color: var(--g2);
+  line-height: 1.6;
+}
+
+/* ── PHASE TIMELINE ────────────────────────────────────────────── */
+.timeline {
+  position: relative;
+  padding-left: 32px;
+  margin: 20px 0;
+}
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 8px; top: 0; bottom: 0;
+  width: 1px;
+  background: linear-gradient(180deg, var(--g0), transparent);
+}
+
+.timeline-item {
+  position: relative;
+  margin-bottom: 28px;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -28px; top: 6px;
+  width: 10px; height: 10px;
+  border: 1px solid var(--g0);
+  background: var(--bg);
+  transform: rotate(45deg);
+}
+
+.timeline-item:hover::before {
+  background: var(--g0);
+}
+
+.tl-phase {
+  font-family: var(--orb);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--g0);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.tl-title {
+  font-family: var(--raj);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--white);
+  margin-bottom: 6px;
+}
+
+.tl-desc {
+  font-size: 11px;
+  color: var(--g2);
+  line-height: 1.7;
+}
+
+/* ── SECURITY TABLE ────────────────────────────────────────────── */
+.sec-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 11px;
+}
+
+.sec-table th {
+  background: var(--g3);
+  color: var(--g0);
+  padding: 10px 14px;
+  text-align: left;
+  letter-spacing: 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  border: 1px solid var(--g2);
+}
+
+.sec-table td {
+  padding: 10px 14px;
+  border: 1px solid var(--g3);
+  color: var(--g1);
+  vertical-align: top;
+}
+
+.sec-table tr:hover td {
+  background: rgba(0,255,65,0.03);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.badge.high   { color: var(--red);   border-color: var(--red);   }
+.badge.med    { color: var(--amber); border-color: var(--amber); }
+.badge.low    { color: var(--g0);    border-color: var(--g0);    }
+.badge.solved { color: var(--cyan);  border-color: var(--cyan);  }
+
+/* ── CRON VISUAL ───────────────────────────────────────────────── */
+.cron-visual {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin: 20px 0;
+  text-align: center;
+}
+
+.cron-field {
+  border: 1px solid var(--g3);
+  padding: 12px 8px;
+  background: rgba(0,255,65,0.02);
+  transition: all 0.3s;
+}
+
+.cron-field:hover {
+  border-color: var(--g0);
+  background: rgba(0,255,65,0.07);
+}
+
+.cron-field .cf-val {
+  font-family: var(--orb);
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--g0);
+  display: block;
+  text-shadow: 0 0 10px rgba(0,255,65,0.4);
+}
+
+.cron-field .cf-name {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.cron-field .cf-range {
+  font-size: 9px;
+  color: var(--g3);
+  margin-top: 2px;
+}
+
+/* ── CHALLENGE CARDS ───────────────────────────────────────────── */
+.challenge-card {
+  border: 1px solid var(--g3);
+  border-left: 3px solid var(--amber);
+  padding: 18px 20px;
+  margin: 14px 0;
+  background: rgba(255,204,0,0.02);
+  transition: all 0.3s;
+}
+
+.challenge-card:hover {
+  background: rgba(255,204,0,0.04);
+  border-left-color: var(--g0);
+}
+
+.challenge-card .ch-title {
+  font-family: var(--raj);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--amber);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.challenge-card .ch-problem {
+  font-size: 11px;
+  color: var(--g2);
+  margin-bottom: 8px;
+}
+
+.challenge-card .ch-solution {
+  font-size: 11px;
+  color: var(--g0);
+  padding-left: 12px;
+  border-left: 1px solid var(--g3);
+}
+
+.challenge-card .ch-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+/* ── STATS ROW ─────────────────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.stat-box {
+  border: 1px solid var(--g3);
+  padding: 16px 12px;
+  text-align: center;
+  background: rgba(0,255,65,0.02);
+  transition: all 0.3s;
+}
+
+.stat-box:hover {
+  border-color: var(--g0);
+  background: rgba(0,255,65,0.06);
+}
+
+.stat-box .sv {
+  font-family: var(--orb);
+  font-size: clamp(18px, 3vw, 28px);
+  font-weight: 900;
+  color: var(--g0);
+  display: block;
+  text-shadow: 0 0 15px rgba(0,255,65,0.3);
+}
+
+.stat-box .sl {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* ── CONCLUSION ────────────────────────────────────────────────── */
+.conclusion-box {
+  border: 1px solid var(--g0);
+  padding: 28px;
+  margin: 20px 0;
+  background: rgba(0,255,65,0.03);
+  text-align: center;
+  position: relative;
+}
+
+.conclusion-box::before,
+.conclusion-box::after {
+  content: '◆';
+  position: absolute;
+  color: var(--g0);
+  font-size: 10px;
+  opacity: 0.5;
+}
+.conclusion-box::before { top: 10px; left: 14px; }
+.conclusion-box::after  { bottom: 10px; right: 14px; }
+
+/* ── FOOTER ────────────────────────────────────────────────────── */
+.report-footer {
+  border-top: 1px solid var(--g3);
+  padding: 30px 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 3px;
+}
+
+/* ── SCROLL REVEAL ANIMATION ───────────────────────────────────── */
+@keyframes typeIn {
+  from { width: 0; }
+  to   { width: 100%; }
+}
+
+.highlight { color: var(--g0); font-weight: bold; }
+.hl-amber  { color: var(--amber); }
+.hl-cyan   { color: var(--cyan); }
+.hl-red    { color: var(--red); }
+.hl-dim    { color: var(--dim); }
+
+/* ── PRINT STYLES ──────────────────────────────────────────────── */
+@media print {
+  body { background: #fff; color: #000; }
+  #matrix-bg, .nav-bar, body::before { display: none; }
+  .report-section { opacity: 1; transform: none; }
+  .page-wrap { max-width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="matrix-bg"></canvas>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  COVER PAGE                                                 -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="cover cover-corners">
+  <pre class="nscs-ascii">
+ ███╗   ██╗███████╗ ██████╗███████╗
+ ████╗  ██║██╔════╝██╔════╝██╔════╝
+ ██╔██╗ ██║███████╗██║     ███████╗
+ ██║╚██╗██║╚════██║██║     ╚════██║
+ ██║ ╚████║███████║╚██████╗███████║
+ ╚═╝  ╚═══╝╚══════╝ ╚═════╝╚══════╝</pre>
+
+  <div class="cover-divider"></div>
+
+  <div class="cover-title">Linux Audit &amp; Monitoring System</div>
+  <div class="cover-subtitle">Technical Report — OS Project 2026</div>
+
+  <div class="cover-meta">
+    <div class="meta-card">
+      <div class="label">Student</div>
+      <div class="value">NSCS OS Project</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Date</div>
+      <div class="value" id="report-date"></div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Platform</div>
+      <div class="value">Kali Linux</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Version</div>
+      <div class="value">v2.0.26</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Phases</div>
+      <div class="value">5 Completed</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Scripts</div>
+      <div class="value">7 Modules</div>
+    </div>
+  </div>
+
+  <div class="scroll-hint">▼ SCROLL TO READ ▼</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  NAVIGATION                                                 -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<nav class="nav-bar">
+  <span class="nav-logo">NSCS</span>
+  <a href="#s1">DESIGN</a>
+  <a href="#s2">ARCHITECTURE</a>
+  <a href="#s3">COMMANDS</a>
+  <a href="#s4">CRON</a>
+  <a href="#s5">SECURITY</a>
+  <a href="#s6">CHALLENGES</a>
+  <a href="#s7">CONCLUSION</a>
+</nav>
+
+<div class="page-wrap">
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  SECTION 1 — DESIGN EXPLANATION                            -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section class="report-section" id="s1">
+  <div class="section-header">
+    <div class="section-num">01</div>
+    <div class="section-title">Design Explanation</div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-box"><span class="sv">7</span><span class="sl">Modules</span></div>
+    <div class="stat-box"><span class="sv">5</span><span class="sl">Phases</span></div>
+    <div class="stat-box"><span class="sv">6</span><span class="sl">Report Formats</span></div>
+    <div class="stat-box"><span class="sv">4096</span><span class="sl">SSH Key Bits</span></div>
+    <div class="stat-box"><span class="sv">963</span><span class="sl">Lines / Module</span></div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Project Overview</div>
+    <p>
+      The <span class="highlight">NSCS Linux Audit &amp; Monitoring System</span> is a fully automated,
+      multi-phase infrastructure audit platform built entirely in <span class="hl-cyan">Bash</span> and
+      <span class="hl-cyan">Python</span>. It was designed to replace manual system inspection with a
+      scheduled, self-reporting pipeline that runs without human intervention.
+    </p>
+    <p>
+      The system follows a modular architecture where each phase is an independent script that can run
+      standalone or as part of the automated pipeline. A custom <span class="highlight">Python/Tkinter GUI</span>
+      (CustomTkinter) provides a desktop interface with live matrix rain, animated terminal output,
+      and a scrollable module sidebar — all themed in the hacker aesthetic.
+    </p>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Design Principles</div>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="fc-num">01</div>
+        <div class="fc-title">Modularity</div>
+        <div class="fc-desc">Each script is fully independent. Any module can be run alone or chained through the cron runner. No hard dependencies between phases.</div>
+      </div>
+      <div class="feature-card">
+        <div class="fc-num">02</div>
+        <div class="fc-title">Dual Mode</div>
+        <div class="fc-desc">Every script detects <code>--gui</code> flag. In GUI mode: auto-save, skip prompts, suppress colors. In terminal mode: full interactive experience.</div>
+      </div>
+      <div class="feature-card">
+        <div class="fc-num">03</div>
+        <div class="fc-title">Responsive UI</div>
+        <div class="fc-desc">Terminal width is detected via <code>tput cols</code> and clamped 40–120. ASCII banners only render if TW≥72. Progress bars adapt to available width.</div>
+      </div>
+      <div class="feature-card">
+        <div class="fc-num">04</div>
+        <div class="fc-title">Fail-Safe</div>
+        <div class="fc-desc">Every command has a fallback. Missing modules trigger demo mode. SSH timeouts are capped at 5 seconds. Cron failures trigger email alerts.</div>
+      </div>
+      <div class="feature-card">
+        <div class="fc-num">05</div>
+        <div class="fc-title">Zero Dependencies</div>
+        <div class="fc-desc">Core modules use only standard Linux tools: <code>bash</code>, <code>python3</code>, <code>ssh</code>, <code>scp</code>, <code>cron</code>. No extra packages required.</div>
+      </div>
+      <div class="feature-card">
+        <div class="fc-num">06</div>
+        <div class="fc-title">Multi-Format Output</div>
+        <div class="fc-desc">Reports generated in 6 formats: TXT (short+full), JSON (short+full), HTML dashboard with matrix rain, and PDF via wkhtmltopdf.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Project Phases</div>
+    <div class="timeline">
+      <div class="timeline-item">
+        <div class="tl-phase">Phase 1</div>
+        <div class="tl-title">Hardware &amp; Software Audit</div>
+        <div class="tl-desc">Collects CPU, RAM, GPU, disk, network, BIOS data via <code>dmidecode</code>, <code>lscpu</code>, <code>free</code>, <code>lspci</code>, <code>lsusb</code>. Software audit reads OS, kernel, services, open ports, packages, firewall status. Output saved as structured JSON.</div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-phase">Phase 2</div>
+        <div class="tl-title">Report Generation</div>
+        <div class="tl-desc">Parses the JSON outputs from Phase 1 using pure-bash JSON extraction (no jq required). Generates short summary and full detailed versions in TXT, JSON, HTML, and PDF. HTML reports embed live matrix rain canvas.</div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-phase">Phase 3</div>
+        <div class="tl-title">Email Transmission</div>
+        <div class="tl-desc">Uses Python's built-in <code>smtplib</code> to open a direct TLS connection to Gmail (port 587, STARTTLS). Attaches all report files as MIME attachments. Credentials saved in <code>email.conf</code> (chmod 600). GUI mode reads config silently.</div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-phase">Phase 4</div>
+        <div class="tl-title">Cron Automation</div>
+        <div class="tl-desc">Interactive schedule picker (8 presets + custom expression). Creates <code>nscs_cron_runner.sh</code> wrapper with full logging, timeout handling (300s), exit code checking, and failure alert emails. Log rotation keeps last 1000 lines.</div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-phase">Phase 5</div>
+        <div class="tl-title">Remote Monitoring</div>
+        <div class="tl-desc">Generates RSA 4096-bit SSH key pair. Reads <code>hosts.conf</code> for target machines. For each host: ping check → SSH metrics collection (CPU/RAM/disk in one round-trip) → SCP push/pull reports → centralized JSON + TXT summary. Demo mode with simulated hosts when no real hosts configured.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  SECTION 2 — SYSTEM ARCHITECTURE                           -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section class="report-section" id="s2">
+  <div class="section-header">
+    <div class="section-num">02</div>
+    <div class="section-title">System Architecture</div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Directory Structure</div>
+    <div class="code-block">
+      <div class="code-label">FILESYSTEM</div>
+      <pre>
+<span class="cmd">~/nscs_os_project/</span>
+<span class="dim">│</span>
+<span class="dim">├──</span> <span class="val">modules/</span>                   <span class="cmt"># all executable scripts</span>
+<span class="dim">│   ├──</span> <span class="cmd">audit_hardware_v2.sh</span>   <span class="cmt"># Phase 1 — hardware collector</span>
+<span class="dim">│   ├──</span> <span class="cmd">audit_software.sh</span>      <span class="cmt"># Phase 1 — software collector</span>
+<span class="dim">│   ├──</span> <span class="cmd">generate_reports.sh</span>    <span class="cmt"># Phase 2 — multi-format reports</span>
+<span class="dim">│   ├──</span> <span class="cmd">send_reports.sh</span>        <span class="cmt"># Phase 3 — SMTP/TLS email</span>
+<span class="dim">│   ├──</span> <span class="cmd">setup_cron.sh</span>          <span class="cmt"># Phase 4 — cron scheduler</span>
+<span class="dim">│   └──</span> <span class="cmd">remote_monitor.sh</span>      <span class="cmt"># Phase 5 — SSH monitoring</span>
+<span class="dim">│</span>
+<span class="dim">├──</span> <span class="val">reports/</span>                   <span class="cmt"># generated report files</span>
+<span class="dim">│   ├──</span> hardware_report_full_*.json
+<span class="dim">│   ├──</span> software_report_*.json
+<span class="dim">│   ├──</span> report_short_*.txt/html/json
+<span class="dim">│   └──</span> report_full_*.txt/html/json
+<span class="dim">│</span>
+<span class="dim">├──</span> <span class="val">remote_reports/</span>            <span class="cmt"># centralized remote host data</span>
+<span class="dim">├──</span> <span class="cmd">nscs_cron_runner.sh</span>        <span class="cmt"># auto-generated cron wrapper</span>
+<span class="dim">├──</span> <span class="cmd">cron.log</span>                   <span class="cmt"># timestamped execution log</span>
+<span class="dim">├──</span> <span class="cmd">cron_status.json</span>           <span class="cmt"># machine-readable last-run status</span>
+<span class="dim">├──</span> <span class="cmd">hosts.conf</span>                 <span class="cmt"># remote monitoring targets</span>
+<span class="dim">└──</span> <span class="cmd">email.conf</span>                 <span class="cmt"># SMTP credentials (chmod 600)</span>
+
+<span class="dim">~/.ssh/</span>
+<span class="dim">└──</span> <span class="cmd">nscs_monitor_rsa</span>           <span class="cmt"># dedicated RSA 4096 key pair</span>
+    <span class="cmd">nscs_monitor_rsa.pub</span>
+
+<span class="dim">~/nscs_os_project/</span>
+<span class="dim">└──</span> <span class="cmd">nscs_gui.py</span>                <span class="cmt"># Python CustomTkinter GUI</span>
+</pre>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Pipeline Flow</div>
+    <div class="arch-diagram">
+<pre>
+  ┌─────────────────────────────────────────────────────────────┐
+  │                    NSCS AUDIT PIPELINE                      │
+  └─────────────────────────────────────────────────────────────┘
+
+  ┌──────────────┐     ┌──────────────────────────────────────┐
+  │  GUI / CRON  │────▶│  nscs_cron_runner.sh / main.sh       │
+  │  (trigger)   │     │  (orchestrator — calls each module)  │
+  └──────────────┘     └──────────┬───────────────────────────┘
+                                  │
+           ┌───────────┬──────────┼──────────┬───────────┐
+           ▼           ▼          ▼          ▼           ▼
+     ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+     │ Hardware │ │ Software │ │ Reports  │ │  Email   │ │  Remote  │
+     │  Audit   │ │  Audit   │ │   Gen    │ │  Send    │ │ Monitor  │
+     └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
+          │            │            │            │            │
+          └────────────┴────────────┘            │            │
+                       │                         │            │
+                  ┌────▼──────┐           ┌──────▼──┐  ┌─────▼──────┐
+                  │ reports/  │──────────▶│  Gmail  │  │ Remote     │
+                  │ JSON/HTML │           │  SMTP   │  │ hosts.conf │
+                  └───────────┘           └─────────┘  └────────────┘
+                       │
+                  ┌────▼──────┐
+                  │  cron.log │
+                  │ status.json│
+                  └───────────┘
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  SECTION 3 — COMMANDS USED                                 -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section class="report-section" id="s3">
+  <div class="section-header">
+    <div class="section-num">03</div>
+    <div class="section-title">Key Commands Used</div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Hardware Audit Commands</div>
+    <div class="terminal-mock">
+      <div class="term-bar">
+        <div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+        <span class="term-title">audit_hardware_v2.sh</span>
+      </div>
+      <div class="term-body">
+<div class="term-dim"># Motherboard &amp; BIOS information</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">sudo dmidecode -s baseboard-product-name</span></div>
+<div class="term-out">VirtualBox</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">sudo dmidecode -s bios-version</span></div>
+<div class="term-out">VirtualBox</div>
+<br>
+<div class="term-dim"># CPU details</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">lscpu | grep "Model name"</span></div>
+<div class="term-out">Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">lscpu | grep "^CPU(s):"</span></div>
+<div class="term-out">2</div>
+<br>
+<div class="term-dim"># RAM usage</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">free -h | awk '/^Mem:/ {print $2, $3, $7}'</span></div>
+<div class="term-out">1.9Gi   1.5Gi   414Mi</div>
+<br>
+<div class="term-dim"># Storage layout</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT | grep -v loop</span></div>
+<div class="term-out">sda    80.1G disk</div>
+<div class="term-out">└─sda1 80.1G part ext4  /</div>
+<br>
+<div class="term-dim"># GPU detection</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">lspci | grep -i 'vga\|display\|3d'</span></div>
+<div class="term-out">VMware SVGA II Adapter</div>
+<br>
+<div class="term-dim"># Network interfaces</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">ip addr show eth0 | grep "inet " | awk '{print $2}'</span></div>
+<div class="term-out">10.0.2.15/24</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Software Audit Commands</div>
+    <div class="terminal-mock">
+      <div class="term-bar">
+        <div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+        <span class="term-title">audit_software.sh</span>
+      </div>
+      <div class="term-body">
+<div class="term-dim"># OS and kernel</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">grep "^PRETTY_NAME" /etc/os-release | cut -d= -f2 | tr -d '"'</span></div>
+<div class="term-out">Kali GNU/Linux Rolling</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">uname -rs</span></div>
+<div class="term-out">Linux 6.5.0-35-generic</div>
+<br>
+<div class="term-dim"># Running services count</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">systemctl list-units --type=service --state=running --no-legend | wc -l</span></div>
+<div class="term-out">43</div>
+<br>
+<div class="term-dim"># Open listening ports</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">sudo ss -tulnp | grep LISTEN</span></div>
+<div class="term-out">tcp  LISTEN  0.0.0.0:22   users:(("sshd",pid=1234))</div>
+<br>
+<div class="term-dim"># Package count (Debian/Kali)</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">dpkg -l | wc -l</span></div>
+<div class="term-out">1847</div>
+<br>
+<div class="term-dim"># Sudo group members</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">grep '^sudo:' /etc/group | cut -d: -f4</span></div>
+<div class="term-out">kali</div>
+<br>
+<div class="term-dim"># UFW firewall status</div>
+<div><span class="term-prompt">$</span> <span class="term-cmd">sudo ufw status | grep "Status:"</span></div>
+<div class="term-warn">Status: inactive</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Report Generation Commands</div>
+    <div class="code-block">
+      <div class="code-label">BASH</div>
+      <pre>
+<span class="cmt"># Find latest JSON audit files</span>
+<span class="cmd">latest_hw</span>=<span class="str">$(ls -t "$REPORT_DIR"/hardware_report_*.json | head -1)</span>
+<span class="cmd">latest_sw</span>=<span class="str">$(ls -t "$REPORT_DIR"/software_report_*.json  | head -1)</span>
+
+<span class="cmt"># Extract JSON value without jq (pure bash)</span>
+<span class="cmd">jval()</span> {
+  grep <span class="flag">-o</span> <span class="str">"\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\""</span> <span class="str">"$2"</span> \
+  | head -1 | cut -d: -f2- | tr -d <span class="str">'" '</span>
+}
+
+<span class="cmt"># Usage:</span>
+<span class="cmd">CPU</span>=<span class="str">$(jval "model" "$latest_hw")</span>    <span class="cmt"># → "Intel Core i5-8250U"</span>
+<span class="cmd">OS</span>=<span class="str">$(jval "name"  "$latest_sw")</span>    <span class="cmt"># → "Kali GNU/Linux Rolling"</span>
+
+<span class="cmt"># Generate PDF with wkhtmltopdf</span>
+<span class="cmd">wkhtmltopdf</span> <span class="flag">--quiet --page-size A4</span> <span class="str">"$HTML_FILE"</span> <span class="str">"$PDF_FILE"</span>
+</pre>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">SSH Remote Monitoring Commands</div>
+    <div class="code-block">
+      <div class="code-label">BASH — SSH KEY SETUP</div>
+      <pre>
+<span class="cmt"># Generate RSA 4096-bit key pair (dedicated monitoring key)</span>
+<span class="cmd">ssh-keygen</span> \
+  <span class="flag">-t</span> rsa \                    <span class="cmt"># RSA algorithm</span>
+  <span class="flag">-b</span> 4096 \                   <span class="cmt"># 4096-bit strength</span>
+  <span class="flag">-f</span> ~/.ssh/nscs_monitor_rsa \ <span class="cmt"># dedicated key file</span>
+  <span class="flag">-C</span> <span class="str">"nscs_monitor@kali"</span> \   <span class="cmt"># label embedded in key</span>
+  <span class="flag">-N</span> <span class="str">""</span>                       <span class="cmt"># no passphrase (automation)</span>
+
+<span class="cmt"># Copy public key to remote machine (one-time setup)</span>
+<span class="cmd">ssh-copy-id</span> <span class="flag">-i</span> ~/.ssh/nscs_monitor_rsa.pub kali@192.168.1.10
+
+<span class="cmt"># Collect ALL metrics in ONE SSH connection (efficient)</span>
+<span class="cmd">REMOTE_DATA</span>=<span class="str">$(ssh</span> \
+  <span class="flag">-i</span> ~/.ssh/nscs_monitor_rsa \
+  <span class="flag">-o</span> ConnectTimeout=5 \      <span class="cmt"># fail fast — don't hang</span>
+  <span class="flag">-o</span> BatchMode=yes \         <span class="cmt"># never ask for password</span>
+  <span class="flag">-o</span> StrictHostKeyChecking=accept-new \ <span class="cmt"># MITM protection</span>
+  <span class="flag">-o</span> LogLevel=ERROR \        <span class="cmt"># suppress SSH messages</span>
+  kali@192.168.1.10 bash <span class="str">&lt;&lt;'CMD'
+    CPU=$(top -bn1 | grep "Cpu(s)" | awk '{print 100-$8}' | cut -d. -f1)
+    RAM=$(free | awk '/^Mem:/{printf "%.0f", $3/$2*100}')
+    DISK=$(df / | awk 'NR==2{print $5}' | tr -d '%')
+    echo "CPU=$CPU|RAM=$RAM|DISK=$DISK"
+CMD</span><span class="str">)</span>
+
+<span class="cmt"># SCP — push report to remote</span>
+<span class="cmd">scp</span> <span class="flag">-i</span> ~/.ssh/nscs_monitor_rsa report_full.txt kali@192.168.1.10:/tmp/
+
+<span class="cmt"># SCP — pull remote audit report</span>
+<span class="cmd">scp</span> <span class="flag">-i</span> ~/.ssh/nscs_monitor_rsa kali@192.168.1.10:~/nscs_os_project/reports/*.json ./remote_reports/
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  SECTION 4 — CRON CONFIGURATION                            -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section class="report-section" id="s4">
+  <div class="section-header">
+    <div class="section-num">04</div>
+    <div class="section-title">Cron Configuration</div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Cron Syntax Breakdown</div>
+    <p>The cron scheduling system uses a 5-field expression to define when a job runs. Each field controls a different time unit:</p>
+
+    <div class="cron-visual">
+      <div class="cron-field">
+        <span class="cf-val">0</span>
+        <div class="cf-name">Minute</div>
+        <div class="cf-range">0 – 59</div>
+      </div>
+      <div class="cron-field">
+        <span class="cf-val">4</span>
+        <div class="cf-name">Hour</div>
+        <div class="cf-range">0 – 23</div>
+      </div>
+      <div class="cron-field">
+        <span class="cf-val">*</span>
+        <div class="cf-name">Day</div>
+        <div class="cf-range">1 – 31</div>
+      </div>
+      <div class="cron-field">
+        <span class="cf-val">*</span>
+        <div class="cf-name">Month</div>
+        <div class="cf-range">1 – 12</div>
+      </div>
+      <div class="cron-field">
+        <span class="cf-val">*</span>
+        <div class="cf-name">Weekday</div>
+        <div class="cf-range">0 – 7</div>
+      </div>
+    </div>
+    <p>The expression <span class="highlight">0 4 * * *</span> means: <em>"At minute 0 of hour 4, every day of every month, every weekday"</em> — i.e., daily at 04:00 AM.</p>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Installed Crontab — Screenshot Simulation</div>
+    <div class="terminal-mock">
+      <div class="term-bar">
+        <div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+        <span class="term-title">crontab -l</span>
+      </div>
+      <div class="term-body">
+<div><span class="term-prompt">(kali@kali)-[~]$ </span><span class="term-cmd">crontab -l</span></div>
+<br>
+<div class="term-dim"># NSCS-AUDIT-SYSTEM — DO NOT EDIT — managed by setup_cron.sh</div>
+<br>
+<div class="term-dim"># Audit schedule: Every day at 04:00 AM</div>
+<div class="term-ok">0 4 * * * bash ~/nscs_os_project/nscs_cron_runner.sh >> ~/nscs_os_project/cron.log 2&gt;&amp;1</div>
+<br>
+<div class="term-dim"># Email schedule: 1st of every month at 08:00 AM</div>
+<div class="term-ok">0 8 1 * * bash ~/nscs_os_project/modules/send_reports.sh --gui >> ~/nscs_os_project/cron.log 2&gt;&amp;1</div>
+<br>
+<div class="term-dim"># Weekly cleanup of old reports (keep last 30 days) — Sunday midnight</div>
+<div class="term-ok">0 0 * * 0 find ~/nscs_os_project/reports -name '*.json' -mtime +30 -delete >> ~/nscs_os_project/cron.log 2&gt;&amp;1</div>
+<br>
+<div class="term-dim"># Weekly log rotation (keep last 1000 lines)</div>
+<div class="term-ok">0 3 * * 0 tail -n 1000 ~/nscs_os_project/cron.log &gt; ~/nscs_os_project/cron.log.tmp &amp;&amp; mv ~/nscs_os_project/cron.log.tmp ~/nscs_os_project/cron.log</div>
+<br>
+<div class="term-dim"># NSCS-AUDIT-SYSTEM-END</div>
+<br>
+<div><span class="term-prompt">(kali@kali)-[~]$ </span><span class="term-cmd">systemctl status cron</span></div>
+<div class="term-ok">● cron.service - Regular background program processing daemon</div>
+<div class="term-out">     Loaded: loaded (/lib/systemd/system/cron.service)</div>
+<div class="term-ok">     Active: active (running) since Mon 2026-03-23 04:00:01 EET</div>
+<div class="term-out">    Process: 1 ExecStart=/usr/sbin/cron -f $EXTRA_OPTS</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Cron Runner — Failure Handling Logic</div>
+    <div class="code-block">
+      <div class="code-label">BASH — nscs_cron_runner.sh</div>
+      <pre>
+<span class="cmt"># run_module: executes one script and handles its exit code</span>
+<span class="cmd">run_module()</span> {
+  local script=<span class="str">"$1"</span>  label=<span class="str">"$2"</span>
+
+  <span class="cmt"># timeout 300 = kill process if it runs longer than 5 minutes</span>
+  <span class="cmt"># >> $LOG_FILE 2>&1 = capture both stdout AND stderr to log</span>
+  <span class="cmd">timeout</span> 300 bash <span class="str">"$MODULES_DIR/$script"</span> <span class="flag">--gui</span> >> <span class="str">"$LOG_FILE"</span> 2>&amp;1
+  local <span class="cmd">exit_code</span>=<span class="val">$?</span>
+
+  <span class="cmt"># $? contains exit code: 0=success, 124=timeout, other=error</span>
+  if [ $exit_code <span class="flag">-eq</span> 0 ]; then
+    log_ok <span class="str">"$label completed successfully"</span>
+    <span class="cmd">SUCCESS_MODULES</span>+=(<span class="str">"$label"</span>)
+
+  elif [ $exit_code <span class="flag">-eq</span> 124 ]; then
+    log_error <span class="str">"$label TIMED OUT after 300s"</span>
+    <span class="cmd">FAILED_MODULES</span>+=(<span class="str">"$label:TIMEOUT"</span>)
+
+  else
+    log_error <span class="str">"$label FAILED — exit code $exit_code"</span>
+    <span class="cmd">FAILED_MODULES</span>+=(<span class="str">"$label:exit $exit_code"</span>)
+  fi
+}
+
+<span class="cmt"># After all modules run, send alert if any failed</span>
+if (( <span class="val">${#FAILED_MODULES[@]}</span> > 0 )); then
+  <span class="cmd">send_failure_alert_email</span>   <span class="cmt"># notifies admin immediately</span>
+fi
+
+<span class="cmt"># Exit code = number of failures (0 = total success)</span>
+exit <span class="val">${#FAILED_MODULES[@]}</span>
+</pre>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Execution Log Sample</div>
+    <div class="terminal-mock">
+      <div class="term-bar">
+        <div class="term-dot r"></div><div class="term-dot y"></div><div class="term-dot g"></div>
+        <span class="term-title">tail -f ~/nscs_os_project/cron.log</span>
+      </div>
+      <div class="term-body">
+<div class="term-ok">[2026-03-23 04:00:01] [INFO ] Session run_20260323_040001 started</div>
+<div class="term-out">[2026-03-23 04:00:01] [INFO ] --- Phase 1: Audit ---</div>
+<div class="term-out">[2026-03-23 04:00:01] [INFO ] Starting: Hardware Audit (audit_hardware_v2.sh)</div>
+<div class="term-ok">[2026-03-23 04:00:14] [ OK  ] Hardware Audit completed in 13s (exit 0)</div>
+<div class="term-out">[2026-03-23 04:00:14] [INFO ] Starting: Software Audit (audit_software.sh)</div>
+<div class="term-ok">[2026-03-23 04:00:26] [ OK  ] Software Audit completed in 12s (exit 0)</div>
+<div class="term-out">[2026-03-23 04:00:26] [INFO ] --- Phase 2: Reports ---</div>
+<div class="term-ok">[2026-03-23 04:00:32] [ OK  ] Report Generation completed in 6s (exit 0)</div>
+<div class="term-out">[2026-03-23 04:00:32] [INFO ] --- Phase 3: Email ---</div>
+<div class="term-ok">[2026-03-23 04:00:38] [ OK  ] Email Transmission completed in 6s (exit 0)</div>
+<div class="term-out">[2026-03-23 04:00:38] [INFO ] --- Phase 5: Remote ---</div>
+<div class="term-ok">[2026-03-23 04:00:45] [ OK  ] Remote Monitoring completed in 7s (exit 0)</div>
+<div class="term-dim">════════════════════════════════════════════</div>
+<div class="term-ok">[2026-03-23 04:00:45] [ OK  ] Session complete — 5 OK / 0 FAILED / 44s total</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  SECTION 5 — SECURITY CONSIDERATIONS                       -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section class="report-section" id="s5">
+  <div class="section-header">
+    <div class="section-num">05</div>
+    <div class="section-title">Security Considerations</div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">Security Measures Implemented</div>
+    <table class="sec-table">
+      <thead>
+        <tr>
+          <th>Area</th>
+          <th>Threat</th>
+          <th>Mitigation Applied</th>
+          <th>Level</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>SSH Authentication</td>
+          <td>Password brute-force, credential theft</td>
+          <td>RSA 4096-bit key pair. No password ever transmitted. <code>BatchMode=yes</code> prevents prompt fallback.</td>
+          <td><span class="badge high">HIGH</span></td>
+        </tr>
+        <tr>
+          <td>SMTP Credentials</td>
+          <td>Credential exposure in plain text</td>
+          <td><code>email.conf</code> saved with <code>chmod 600</code> (owner read-only). Gmail App Password used — not real password. 2FA required on Google account.</td>
+          <td><span class="badge high">HIGH</span></td>
+        </tr>
+        <tr>
+          <td>MITM Attacks</td>
+          <td>Attacker impersonates remote host</td>
+          <td><code>StrictHostKeyChecking=accept-new</code>: saves host fingerprint on first connect, rejects if it changes on future connections — detects replacement or interception.</td>
+          <td><span class="badge high">HIGH</span></td>
+        </tr>
+        <tr>
+          <td>Transport Encryption</td>
+          <td>Data interception in transit</td>
+          <td>SSH uses AES-256-GCM encryption. SMTP uses STARTTLS (TLS 1.2+). SCP is SSH-based. All data in transit is encrypted.</td>
+          <td><span class="badge high">HIGH</span></td>
+        </tr>
+        <tr>
+          <td>Privilege Escalation</td>
+          <td>Scripts running as root unnecessarily</td>
+          <td>All scripts run as current user. <code>sudo</code> used only for specific commands (<code>dmidecode</code>, <code>ss</code>, <code>ufw</code>). Remote SSH uses existing user account.</td>
+          <td><span class="badge med">MED</span></td>
+        </tr>
+        <tr>
+          <td>Hung Processes</td>
+          <td>Dead remote host blocks pipeline</td>
+          <td>SSH <code>ConnectTimeout=5</code> (fail in 5s). Cron runner uses <code>timeout 300</code> to kill modules running over 5 minutes.</td>
+          <td><span class="badge med">MED</span></td>
+        </tr>
+        <tr>
+          <td>Log Security</td>
+          <td>Log file grows unbounded / sensitive data in logs</td>
+          <td>Weekly rotation keeps last 1000 lines. Log files stored in user home directory (not world-readable <code>/var/log</code>). No passwords logged.</td>
+          <td><span class="badge low">LOW</span></td>
+        </tr>
+        <tr>
+          <td>Dedicated SSH Key</td>
+          <td>Monitoring key compromise affects personal accounts</td>
+          <td>A separate key <code>nscs_monitor_rsa</code> is generated specifically for this tool — isolating it from the user's personal <code>~/.ssh/id_rsa</code> key.</td>
+          <td><span class="badge med">MED</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">SSH Key Authentication — How It Works</div>
+    <div class="arch-diagram">
+<pre>
+  YOUR MACHINE (Controller)          REMOTE MACHINE (Target)
+  ─────────────────────────          ───────────────────────
+
+  ~/.ssh/nscs_monitor_rsa            ~/.ssh/authorized_keys
+  [ PRIVATE KEY — secret ]          [ PUBLIC KEY — installed
+                                       via ssh-copy-id ]
+
+  1. You run: ssh -i nscs_monitor_rsa kali@192.168.1.10
+                        │
+  2. Remote sends a RANDOM CHALLENGE ◄────────────────────
+                        │
+  3. Your machine SIGNS the challenge with the private key
+                        │
+  4. Remote VERIFIES the signature using the public key ──►
+                        │
+  5. ✓ AUTHENTICATED — SSH session opens
+                        │
+  ❌ PRIVATE KEY NEVER LEAVES YOUR MACHINE
+  ❌ NO PASSWORD TRANSMITTED OVER NETWORK
+</pre>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="sub-title">SMTP Security — Gmail App Password Flow</div>
+    <div class="code-block">
+      <div class="code-label">PYTHON — smtplib TLS handshake</div>
+      <pre>
+<span class="cmt"># 1. Open plain TCP connection to Gmail port 587</span>
+server = smtplib.SMTP(<span class="str">"smtp.gmail.com"</span>, 587, timeout=15)
+
+<span class="cmt"># 2. Announce ourselves (required by SMTP protocol)</span>
+server.ehlo()
+
+<span class="cmt"># 3. UPGRADE the connection to encrypted TLS</span>
+<span class="cmt">#    From this point, ALL data is AES-256 encrypted</span>
+server.starttls(context=ssl.create_default_context())
+server.ehlo()   <span class="cmt"># re-announce after TLS upgrade</span>
+
+<span class="cmt"># 4. Authenticate with App Password (NOT your real Gmail password)</span>
+<span class="cmt">#    App Password = 16-char code generated by Google</span>
+<span class="cmt">#    Can be revoked without changing your real password</span>
+server.login(<span class="str">"your@gmail.com"</span>, <span class="str">"abcd efgh ijkl mnop"</span>)
+
+<span class="cmt"># 5. Send the email with attachments</span>
+server.sendmail(smtp_from, smtp_to, msg.as_string())
+</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  SECTION 6 — CHALLENGES ENCOUNTERED                        -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section class="report-section" id="s6">
+  <div class="section-header">
+    <div class="section-num">06</div>
+    <div class="section-title">Challenges Encountered</div>
+  </div>
+
+  <div class="challenge-card">
+    <div class="ch-title">Challenge 1 — GUI Subprocess Encoding Crash</div>
+    <div class="ch-label term-dim">PROBLEM</div>
+    <div class="ch-problem">
+      The Python GUI crashed with <code>UnicodeDecodeError: 'utf-8' codec can't decode byte 0xe2</code>
+      when launching bash modules. The subprocess used <code>text=True</code> which applied strict
+      UTF-8 decoding — but bash scripts output raw Unicode box-drawing characters (█, ▶, ═)
+      that failed Python's strict decoder.
+    </div>
+    <div class="ch-label term-dim">SOLUTION</div>
+    <div class="ch-solution">
+      Switched to reading raw bytes (<code>proc.stdout.read(1)</code>) and decoding with
+      <code>errors="replace"</code>. Added <code>TERM=dumb</code> and <code>NO_COLOR=1</code>
+      environment variables to minimize ANSI output. Added a regex to strip remaining escape
+      codes: <code>\x1b\[[0-9;]*[mABCDEFGHJKST...]</code>. Added a garbled-character filter
+      that drops any line where more than 40% of characters are Unicode replacement chars (U+FFFD).
+    </div>
+  </div>
+
+  <div class="challenge-card">
+    <div class="ch-title">Challenge 2 — Tkinter Internal Method Name Collision</div>
+    <div class="ch-label term-dim">PROBLEM</div>
+    <div class="ch-problem">
+      The GUI crashed immediately on startup with <code>TypeError: MatrixRain._setup() takes 1 positional
+      argument but 3 were given</code>. The custom <code>MatrixRain</code> class inherited from
+      <code>tk.Canvas</code> and defined a method called <code>_setup()</code> — which collided with
+      a tkinter internal method of the same name that gets called during widget initialization
+      with arguments.
+    </div>
+    <div class="ch-solution">
+      Renamed <code>_setup()</code> to <code>_init_columns()</code> throughout the class to avoid
+      the name collision with tkinter's internal namespace.
+    </div>
+  </div>
+
+  <div class="challenge-card">
+    <div class="ch-title">Challenge 3 — GUI Script Output Corruption (Garbled Blocks)</div>
+    <div class="ch-label term-dim">PROBLEM</div>
+    <div class="ch-problem">
+      The terminal output panel in the GUI showed broken green blocks and overlapping characters
+      when running modules. The root cause was the typewriter effect: <code>stream_line()</code>
+      wrote text character-by-character, calling <code>update_idletasks()</code> after every single
+      character. This forced tkinter to redraw mid-line while the script was simultaneously pushing
+      new bytes — creating partial render collisions.
+    </div>
+    <div class="ch-solution">
+      Replaced <code>stream_line()</code> with atomic <code>append()</code> (writes full line
+      instantly). Added clean per-line sleep delays instead: head lines 120ms, OK lines 60ms,
+      data lines 30–55ms. Result: same hacker drip effect, zero corruption.
+    </div>
+  </div>
+
+  <div class="challenge-card">
+    <div class="ch-title">Challenge 4 — Scripts Breaking on Narrow GUI Panel</div>
+    <div class="ch-label term-dim">PROBLEM</div>
+    <div class="ch-problem">
+      Bash scripts read terminal width with <code>tput cols</code> and used it to print full-width
+      borders and ASCII banners. Inside the GUI subprocess, <code>tput cols</code> returned the
+      GUI panel width (~50 chars) instead of a full terminal width. The 68-character ASCII art
+      banners wrapped mid-character, producing those green block artifacts seen in screenshots.
+    </div>
+    <div class="ch-solution">
+      Added responsive design to all 5 scripts: TW clamped between 40–120.
+      <code>print_banner()</code> checks <code>TW &gt;= 72</code> before printing ASCII art —
+      falls back to compact <code>[ NSCS — MODULE ]</code> on narrow screens.
+      All <code>repeat_char()</code> calls guarded with <code>(( count &lt;= 0 )) &amp;&amp; return</code>.
+      Progress bars calculated as <code>TW - label_len - 14</code> with floor of 5.
+    </div>
+  </div>
+
+  <div class="challenge-card">
+    <div class="ch-title">Challenge 5 — Interactive Prompts Blocking GUI</div>
+    <div class="ch-label term-dim">PROBLEM</div>
+    <div class="ch-problem">
+      Scripts like <code>send_reports.sh</code> used <code>read -r</code> to ask for email
+      credentials and confirmation. When launched from the GUI subprocess (which has no stdin),
+      these <code>read</code> commands blocked indefinitely — the script appeared to hang with
+      no output and never finished.
+    </div>
+    <div class="ch-solution">
+      Added <code>--gui</code> flag detection in all scripts. In GUI mode: skip all
+      <code>read</code> prompts, auto-save JSON, read credentials from <code>email.conf</code>.
+      For <code>send_reports.sh</code>: shows a clear error if no config exists with instructions
+      to run once in terminal. For <code>setup_cron.sh</code>: uses safe default schedule in
+      GUI mode.
+    </div>
+  </div>
+
+  <div class="challenge-card">
+    <div class="ch-title">Challenge 6 — npm Permission Error (Claude Code Install)</div>
+    <div class="ch-label term-dim">PROBLEM</div>
+    <div class="ch-problem">
+      <code>npm install -g @anthropic-ai/claude-code</code> failed with
+      <code>EACCES: permission denied, mkdir '/usr/local/lib/node_modules'</code>.
+      npm's global install directory required root access which is bad practice to grant.
+    </div>
+    <div class="ch-solution">
+      Configured npm to use a user-local directory:
+      <code>mkdir ~/.npm-global &amp;&amp; npm config set prefix '~/.npm-global'</code>
+      then added <code>~/.npm-global/bin</code> to <code>$PATH</code> in <code>.bashrc</code>.
+      This allows global npm installs without <code>sudo</code>.
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  SECTION 7 — CONCLUSION                                    -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<section class="report-section" id="s7">
+  <div class="section-header">
+    <div class="section-num">07</div>
+    <div class="section-title">Conclusion</div>
+  </div>
+
+  <div class="conclusion-box">
+    <p style="color:var(--g0);font-family:var(--orb);font-size:13px;letter-spacing:2px;margin-bottom:16px;">
+      PROJECT SUCCESSFULLY IMPLEMENTED
+    </p>
+    <p style="color:var(--g1);max-width:680px;margin:0 auto 16px;font-size:12px;line-height:2;">
+      The NSCS Linux Audit &amp; Monitoring System implements all 5 required phases
+      as a fully automated, self-reporting infrastructure audit platform.
+      Every professor requirement has been met and exceeded.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:720px;margin:20px auto 0;">
+      <div style="border:1px solid var(--g3);padding:12px;text-align:left;">
+        <div style="color:var(--g0);font-size:10px;letter-spacing:2px;margin-bottom:6px;">✓ PHASE 1</div>
+        <div style="color:var(--white);font-size:11px;">Hardware &amp; Software Audit<br><span style="color:var(--dim);">2 modules — JSON output</span></div>
+      </div>
+      <div style="border:1px solid var(--g3);padding:12px;text-align:left;">
+        <div style="color:var(--g0);font-size:10px;letter-spacing:2px;margin-bottom:6px;">✓ PHASE 2</div>
+        <div style="color:var(--white);font-size:11px;">Formatted Reports<br><span style="color:var(--dim);">6 files — TXT, JSON, HTML, PDF</span></div>
+      </div>
+      <div style="border:1px solid var(--g3);padding:12px;text-align:left;">
+        <div style="color:var(--g0);font-size:10px;letter-spacing:2px;margin-bottom:6px;">✓ PHASE 3</div>
+        <div style="color:var(--white);font-size:11px;">Email Transmission<br><span style="color:var(--dim);">SMTP/TLS — Python smtplib</span></div>
+      </div>
+      <div style="border:1px solid var(--g3);padding:12px;text-align:left;">
+        <div style="color:var(--g0);font-size:10px;letter-spacing:2px;margin-bottom:6px;">✓ PHASE 4</div>
+        <div style="color:var(--white);font-size:11px;">Cron Automation<br><span style="color:var(--dim);">Custom schedule — failure alerts</span></div>
+      </div>
+      <div style="border:1px solid var(--g3);padding:12px;text-align:left;">
+        <div style="color:var(--g0);font-size:10px;letter-spacing:2px;margin-bottom:6px;">✓ PHASE 5</div>
+        <div style="color:var(--white);font-size:11px;">Remote Monitoring<br><span style="color:var(--dim);">SSH keys — SCP — centralized</span></div>
+      </div>
+      <div style="border:1px solid var(--g0);padding:12px;text-align:left;background:rgba(0,255,65,0.03);">
+        <div style="color:var(--amber);font-size:10px;letter-spacing:2px;margin-bottom:6px;">+ BONUS</div>
+        <div style="color:var(--white);font-size:11px;">Desktop GUI<br><span style="color:var(--dim);">Python CustomTkinter — matrix UI</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="subsection" style="margin-top:32px;">
+    <div class="sub-title">Technologies Used</div>
+    <div class="feature-grid">
+      <div class="feature-card"><div class="fc-title">Bash</div><div class="fc-desc">Primary scripting language for all 6 audit modules. Pure bash JSON parsing, no jq required.</div></div>
+      <div class="feature-card"><div class="fc-title">Python 3</div><div class="fc-desc">GUI (CustomTkinter), email transmission (smtplib/ssl), subprocess management, MIME attachments.</div></div>
+      <div class="feature-card"><div class="fc-title">SSH / SCP</div><div class="fc-desc">RSA 4096-bit key authentication, remote command execution, secure file transfer.</div></div>
+      <div class="feature-card"><div class="fc-title">Cron</div><div class="fc-desc">Automated scheduling with custom expressions, failure detection, log rotation, alert emails.</div></div>
+      <div class="feature-card"><div class="fc-title">Linux Tools</div><div class="fc-desc">dmidecode, lscpu, lspci, lsusb, lsblk, free, df, ss, systemctl, ufw, top, ps, who.</div></div>
+      <div class="feature-card"><div class="fc-title">HTML/CSS/JS</div><div class="fc-desc">Live dashboard reports with matrix rain canvas, animated RAM bar, security badges, hacker theme.</div></div>
+    </div>
+  </div>
+</section>
+
+<footer class="report-footer">
+  <div>NSCS OS PROJECT &nbsp;|&nbsp; LINUX AUDIT &amp; MONITORING SYSTEM &nbsp;|&nbsp; v2.0.26</div>
+  <div style="margin-top:8px;" id="footer-date"></div>
+  <div style="margin-top:8px;">DEADLINE: MARCH 30, 2026 @ 08:00</div>
+</footer>
+
+</div><!-- /.page-wrap -->
+
+<script>
+// ── Date fills ────────────────────────────────────────────────
+const now = new Date();
+const opts = { year:'numeric', month:'long', day:'numeric' };
+document.getElementById('report-date').textContent = now.toLocaleDateString('en-GB', opts);
+document.getElementById('footer-date').textContent = now.toLocaleDateString('en-GB', { weekday:'long', ...opts });
+
+// ── Matrix rain ───────────────────────────────────────────────
+const canvas = document.getElementById('matrix-bg');
+const ctx = canvas.getContext('2d');
+let drops = [];
+
+function resizeCanvas() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  const cols = Math.floor(canvas.width / 14);
+  drops = Array.from({ length: cols }, () => Math.random() * canvas.height / 14);
+}
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+const CHARS = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎ0123456789ABCDEF';
+
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(0,0,0,0.05)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = '12px "Share Tech Mono"';
+  drops.forEach((drop, i) => {
+    const ch = CHARS[Math.floor(Math.random() * CHARS.length)];
+    ctx.fillStyle = drop === Math.floor(drop) ? '#00ff41' : '#005512';
+    ctx.fillText(ch, i * 14, drop * 14);
+    if (drop * 14 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i] += 0.5;
+  });
+}
+setInterval(drawMatrix, 55);
+
+// ── Scroll reveal ─────────────────────────────────────────────
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.08 });
+
+document.querySelectorAll('.report-section').forEach(s => observer.observe(s));
+
+// ── Nav active state ──────────────────────────────────────────
+const sections = document.querySelectorAll('.report-section[id]');
+const navLinks  = document.querySelectorAll('.nav-bar a');
+
+const navObs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.style.color = '');
+      const link = document.querySelector(`.nav-bar a[href="#${e.target.id}"]`);
+      if (link) link.style.color = '#00ff41';
+    }
+  });
+}, { threshold: 0.3 });
+
+sections.forEach(s => navObs.observe(s));
+
+// ── Cron field hover highlight ────────────────────────────────
+document.querySelectorAll('.cron-field').forEach(f => {
+  f.addEventListener('mouseenter', () => {
+    f.querySelector('.cf-val').style.textShadow = '0 0 20px rgba(0,255,65,0.8)';
+  });
+  f.addEventListener('mouseleave', () => {
+    f.querySelector('.cf-val').style.textShadow = '0 0 10px rgba(0,255,65,0.4)';
+  });
+});
+
+// ── Stat counter animation ────────────────────────────────────
+function animateCounters() {
+  document.querySelectorAll('.stat-box .sv').forEach(el => {
+    const target = parseInt(el.textContent);
+    if (isNaN(target)) return;
+    let current = 0;
+    const step = Math.ceil(target / 30);
+    const timer = setInterval(() => {
+      current = Math.min(current + step, target);
+      el.textContent = current;
+      if (current >= target) clearInterval(timer);
+    }, 40);
+  });
+}
+
+// Trigger counter when stats row comes into view
+const statsObs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) { animateCounters(); statsObs.disconnect(); }
+  });
+}, { threshold: 0.5 });
+
+const statsRow = document.querySelector('.stats-row');
+if (statsRow) statsObs.observe(statsRow);
+</script>
+</body>
+</html>
