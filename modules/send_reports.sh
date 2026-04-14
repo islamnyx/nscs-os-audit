@@ -30,8 +30,8 @@ WH='\033[1;37m'; DM='\033[2;32m'; NC='\033[0m'; BOLD='\033[1m'
 # PATHS & CONFIG
 # ============================================================================
 
-REPORT_DIR="$HOME/nscs_os_project/reports"
-CONFIG_DIR="$HOME/nscs_os_project"
+REPORT_DIR="$HOME/nscs-os-audit/reports"
+CONFIG_DIR="$HOME/nscs-os-audit"
 CONFIG_FILE="$CONFIG_DIR/email.conf"
 mkdir -p "$REPORT_DIR" "$CONFIG_DIR"
 
