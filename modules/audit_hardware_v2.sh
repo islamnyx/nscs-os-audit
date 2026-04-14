@@ -206,7 +206,13 @@ section "CPU INFORMATION"
 CPU_MODEL=$(lscpu | grep "Model name" | cut -d: -f2 | xargs)
 CPU_CORES=$(lscpu | grep "^CPU(s):"   | awk '{print $2}')
 CPU_ARCH=$( lscpu | grep "Architecture" | awk '{print $2}')
-CPU_SPEED=$(lscpu | grep "CPU MHz" | awk '{printf "%.0f MHz", $3}' 2>/dev/null || echo "N/A")
+CPU_SPEED=$(lscpu | grep -E "^CPU max MHz" | awk '{printf "%.0f MHz", $NF}' 2>/dev/null)
+if [ -z "$CPU_SPEED" ]; then
+    # Fallback: try reading directly from the kernel (works on most systems)
+    CPU_SPEED=$(cat /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq 2>/dev/null \
+        | awk '{printf "%.0f MHz", $1/1000}')
+fi
+[ -z "$CPU_SPEED" ] && CPU_SPEED="N/A"
 CPU_CACHE=$(lscpu | grep "L3 cache" | cut -d: -f2 | xargs 2>/dev/null || echo "N/A")
 CPU_VIRT=$( lscpu | grep "Virtualization" | cut -d: -f2 | xargs 2>/dev/null || echo "N/A")
 
