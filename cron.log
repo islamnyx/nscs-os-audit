@@ -41,3 +41,10 @@
 [2026-03-27 10:04:19] [INFO] Cron daemon: ACTIVE
 [2026-03-27 10:04:26] [INFO] setup_cron.sh completed successfully
 [2026-03-27 10:04:26] [INFO] Next scheduled run: 2026-03-28 04:00:00
+[2026-04-15 14:33:31] [INFO] setup_cron.sh started — user: kali host: kali
+[2026-04-15 14:33:31] [INFO] Module verified: audit_hardware_v2.sh
+[2026-04-15 14:33:31] [INFO] Module verified: audit_software.sh
+[2026-04-15 14:33:31] [INFO] Module verified: generate_reports.sh
+[2026-04-15 14:33:31] [INFO] Module verified: send_reports.sh
+[2026-04-15 14:33:31] [INFO] Module verified: remote_monitor.sh
+[2026-04-15 14:33:33] [INFO] Cron runner script created: /home/kali/nscs-os-audit/nscs_cron_runner.sh
