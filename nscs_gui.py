@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-NSCS OS Project — Hacker GUI (CustomTkinter Edition)
-A standalone desktop GUI that orchestrates all audit modules
-with matrix rain, animated terminal output, and full hacker aesthetic.
+NSCS OS Project — Rebuilt GUI v3
+Rebuilt from zero: same hacker style as the old GUI,
+but wired exactly like main_menu.sh — runs real scripts,
+no bugs, clean threading, fast matrix rain.
 """
 
-import customtkinter as ctk
 import tkinter as tk
 import subprocess
 import threading
@@ -13,348 +13,370 @@ import random
 import time
 import os
 import sys
+import math
 from datetime import datetime
 from pathlib import Path
 
-# ── Paths ──────────────────────────────────────────────────────────────────
+# ── Paths ──────────────────────────────────────────────────────────────────────
 SCRIPT_DIR  = Path(__file__).parent.resolve()
 MODULES_DIR = SCRIPT_DIR / "modules"
-LOG_DIR     = Path.home() / "nscs_os_project"
+LOG_DIR     = Path.home() / "nscs-os-audit"
 REPORT_DIR  = LOG_DIR / "reports"
 
-# ── Theme ──────────────────────────────────────────────────────────────────
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("green")
+# ── Palette ────────────────────────────────────────────────────────────────────
+C_BG      = "#000000"
+C_BG2     = "#030a03"
+C_PANEL   = "#050d05"
+C_BORDER  = "#0a280a"
+C_GREEN   = "#00ff41"
+C_GREEN2  = "#00cc33"
+C_GREEN3  = "#005512"
+C_DIM     = "#002a08"
+C_DIM2    = "#001505"
+C_YELLOW  = "#ffcc00"
+C_RED     = "#ff3333"
+C_WHITE   = "#d0ffd0"
+C_CYAN    = "#00ffcc"
+C_PURPLE  = "#bb88ff"
 
-# Palette
-C_BG       = "#000000"
-C_BG2      = "#050d05"
-C_PANEL    = "#060f06"
-C_BORDER   = "#0a2a0a"
-C_GREEN    = "#00ff41"
-C_GREEN2   = "#00cc33"
-C_GREEN3   = "#005512"
-C_DIM      = "#003a0a"
-C_YELLOW   = "#ffcc00"
-C_RED      = "#ff3333"
-C_WHITE    = "#e8ffe8"
-C_CYAN     = "#00ffcc"
+FONT      = ("Courier New", 10)
+FONT_SM   = ("Courier New", 9)
+FONT_XS   = ("Courier New", 8)
+FONT_LG   = ("Courier New", 11, "bold")
+FONT_BOLD = ("Courier New", 10, "bold")
 
-MONO_FONT  = ("Courier New", 11)
-MONO_SM    = ("Courier New", 9)
-MONO_LG    = ("Courier New", 13, "bold")
-MONO_XL    = ("Courier New", 18, "bold")
-MONO_TITLE = ("Courier New", 10)
+# Matrix chars
+_MC = "ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789ABCDEF"
 
-# Matrix characters
-MATRIX_CHARS = "ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789ABCDEF"
+# Modules — (key, label, subtitle, script_name, color, danger)
+MODULES = [
+    ("1",  "HARDWARE AUDIT",   "Phase 1  ·  DMI / CPU / GPU / RAM",         "audit_hardware_v2.sh", C_GREEN,  False),
+    ("2",  "SOFTWARE AUDIT",   "Phase 1  ·  OS / Packages / Services",       "audit_software.sh",    C_CYAN,   False),
+    ("3",  "GENERATE REPORTS", "Phase 2  ·  TXT / JSON / HTML / PDF",        "generate_reports.sh",  C_YELLOW, False),
+    ("4",  "SEND REPORTS",     "Phase 3  ·  SMTP / TLS / Gmail",             "send_reports.sh",      C_WHITE,  False),
+    ("5",  "CRON AUTOMATION",  "Phase 4  ·  Scheduling / Logging",           "setup_cron.sh",        C_PURPLE, False),
+    ("6",  "REMOTE MONITOR",   "Phase 5  ·  SSH / SCP / Centralized",        "remote_monitor.sh",    C_RED,    True),
+]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Matrix Rain Canvas
 # ══════════════════════════════════════════════════════════════════════════════
-
 class MatrixRain(tk.Canvas):
-    def __init__(self, master, **kwargs):
-        super().__init__(master, bg=C_BG, highlightthickness=0, **kwargs)
-        self.cols   = []
-        self.drops  = []
-        self.texts  = []
-        self._after = None
+    COL_W  = 13
+    ROW_H  = 13
+    DELAY  = 55  # ms between frames
+
+    def __init__(self, master, **kw):
+        super().__init__(master, bg=C_BG, highlightthickness=0, **kw)
+        self._drops  = []
+        self._items  = []
+        self._ncols  = 0
+        self._nrows  = 0
+        self._job    = None
+        self._alive  = False
         self.bind("<Configure>", self._on_resize)
-        self._running = False
 
     def start(self):
-        self._running = True
+        self._alive = True
         self._init_columns()
         self._tick()
 
     def stop(self):
-        self._running = False
-        if self._after:
-            try:
-                self.after_cancel(self._after)
-            except Exception:
-                pass
+        self._alive = False
+        if self._job:
+            try: self.after_cancel(self._job)
+            except Exception: pass
+
+    def _on_resize(self, _e):
+        if self._alive:
+            self._init_columns()
 
     def _init_columns(self):
         self.delete("all")
-        self.texts = []
-        self.drops = []
-        w = self.winfo_width()  or 200
-        h = self.winfo_height() or 400
-        col_w = 14
-        n = max(1, w // col_w)
-        for i in range(n):
-            x = i * col_w + 7
-            drop = random.randint(0, h // 14)
-            self.drops.append(drop)
-            items = []
-            rows = h // 14 + 2
-            for j in range(rows):
-                ch = random.choice(MATRIX_CHARS)
-                y  = j * 14
-                txt = self.create_text(x, y, text=ch, font=("Courier New", 9),
-                                       fill=C_DIM, anchor="center")
-                items.append(txt)
-            self.texts.append(items)
-
-    def _on_resize(self, _event):
-        self._init_columns()
+        self._items = []
+        self._drops = []
+        w = self.winfo_width()  or 300
+        h = self.winfo_height() or 110
+        self._ncols = max(1, w // self.COL_W)
+        self._nrows = max(1, h // self.ROW_H) + 2
+        for c in range(self._ncols):
+            x = c * self.COL_W + 6
+            col_items = []
+            for r in range(self._nrows):
+                ch = random.choice(_MC)
+                y  = r * self.ROW_H
+                tid = self.create_text(x, y, text=ch,
+                                       font=("Courier New", 9),
+                                       fill=C_DIM2, anchor="center")
+                col_items.append(tid)
+            self._items.append(col_items)
+            self._drops.append(random.randint(0, self._nrows))
 
     def _tick(self):
-        if not self._running:
+        if not self._alive:
             return
-        h = self.winfo_height() or 400
-        rows = h // 14 + 2
-        for col_idx, (drop, items) in enumerate(zip(self.drops, self.texts)):
-            for row_idx, txt in enumerate(items):
-                dist = row_idx - drop
-                if dist == 0:
-                    self.itemconfigure(txt, fill=C_GREEN,
-                                       text=random.choice(MATRIX_CHARS))
-                elif dist == -1:
-                    self.itemconfigure(txt, fill=C_GREEN2,
-                                       text=random.choice(MATRIX_CHARS))
-                elif -4 < dist < 0:
-                    self.itemconfigure(txt, fill=C_GREEN3,
-                                       text=random.choice(MATRIX_CHARS))
-                elif dist < 0:
-                    self.itemconfigure(txt, fill=C_DIM)
+        for ci, (drop, col) in enumerate(zip(self._drops, self._items)):
+            for ri, tid in enumerate(col):
+                dist = ri - drop
+                if   dist == 0:      fill, ch = C_GREEN,  random.choice(_MC)
+                elif dist == -1:     fill, ch = C_GREEN2, random.choice(_MC)
+                elif -4 < dist < 0:  fill, ch = C_GREEN3, random.choice(_MC)
+                elif dist < 0:       fill, ch = C_DIM,    None
+                else:                fill, ch = C_DIM2,   None
+                if ch:
+                    self.itemconfigure(tid, fill=fill, text=ch)
                 else:
-                    self.itemconfigure(txt, fill=C_BG)
-
-            self.drops[col_idx] = (drop + 1) % (rows + random.randint(5, 20))
-
-        self._after = self.after(60, self._tick)
+                    self.itemconfigure(tid, fill=fill)
+            limit = self._nrows + random.randint(4, 18)
+            self._drops[ci] = (drop + 1) % limit
+        self._job = self.after(self.DELAY, self._tick)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Animated Terminal Output Widget
+#  Glow Progress Bar
 # ══════════════════════════════════════════════════════════════════════════════
+class ProgressBar(tk.Canvas):
+    def __init__(self, master, **kw):
+        super().__init__(master, bg=C_BG2, highlightthickness=0, height=5, **kw)
+        self._pct = 0.0
+        self._pulse_t = 0.0
+        self._pulsing = False
+        self._job = None
+        self.bind("<Configure>", lambda _e: self._redraw())
 
-class TerminalOutput(tk.Text):
-    def __init__(self, master, **kwargs):
+    def set_pct(self, pct):
+        self._pct = max(0.0, min(1.0, pct))
+        self._redraw()
+
+    def start_pulse(self):
+        self._pulsing = True
+        self._pulse_loop()
+
+    def stop_pulse(self):
+        self._pulsing = False
+        if self._job:
+            try: self.after_cancel(self._job)
+            except Exception: pass
+        self._redraw()
+
+    def _pulse_loop(self):
+        if not self._pulsing:
+            return
+        self._pulse_t += 0.12
+        self._pct = (math.sin(self._pulse_t) + 1) / 2
+        self._redraw()
+        self._job = self.after(50, self._pulse_loop)
+
+    def _redraw(self):
+        self.delete("all")
+        w = self.winfo_width() or 400
+        h = self.winfo_height() or 5
+        # track
+        self.create_rectangle(0, 0, w, h, fill=C_DIM2, outline="")
+        # fill
+        fw = int(w * self._pct)
+        if fw > 2:
+            self.create_rectangle(0, 0, fw, h, fill=C_GREEN3, outline="")
+            tip = min(fw, 8)
+            self.create_rectangle(fw - tip, 0, fw, h, fill=C_GREEN2, outline="")
+            self.create_rectangle(fw - 2, 0, fw, h, fill=C_GREEN, outline="")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Terminal Text Widget
+# ══════════════════════════════════════════════════════════════════════════════
+class Terminal(tk.Text):
+    TAGS = {
+        "ok":     {"foreground": C_GREEN},
+        "warn":   {"foreground": C_YELLOW},
+        "err":    {"foreground": C_RED},
+        "head":   {"foreground": C_CYAN,   "font": ("Courier New", 10, "bold")},
+        "dim":    {"foreground": C_GREEN3},
+        "prompt": {"foreground": C_GREEN2},
+        "white":  {"foreground": C_WHITE},
+        "info":   {"foreground": C_PURPLE},
+    }
+
+    def __init__(self, master, **kw):
         super().__init__(
             master,
             bg=C_BG2, fg=C_GREEN2,
             insertbackground=C_GREEN,
-            font=MONO_SM,
-            relief="flat",
-            borderwidth=0,
+            font=FONT_SM,
+            relief="flat", borderwidth=0,
             wrap="word",
             state="disabled",
             cursor="arrow",
-            **kwargs
+            **kw
         )
-        self.tag_configure("ok",      foreground=C_GREEN)
-        self.tag_configure("warn",    foreground=C_YELLOW)
-        self.tag_configure("err",     foreground=C_RED)
-        self.tag_configure("head",    foreground=C_CYAN, font=("Courier New", 10, "bold"))
-        self.tag_configure("dim",     foreground=C_DIM)
-        self.tag_configure("prompt",  foreground=C_GREEN2)
-        self.tag_configure("white",   foreground=C_WHITE)
+        for name, cfg in self.TAGS.items():
+            self.tag_configure(name, **cfg)
 
     def clear(self):
         self.configure(state="normal")
         self.delete("1.0", "end")
         self.configure(state="disabled")
 
-    def append(self, text, tag="", newline=True):
+    def write(self, text, tag="", newline=True):
         self.configure(state="normal")
-        self.insert("end", text + ("\n" if newline else ""), tag or ())
+        suffix = "\n" if newline else ""
+        self.insert("end", text + suffix, tag or ())
         self.see("end")
         self.configure(state="disabled")
 
-    def stream_line(self, text, tag="", delay=0.0):
-        """Write character by character for typewriter effect."""
+    def typewrite(self, text, tag="", char_delay=0.008):
+        """Character-by-character typewriter effect. Call from a worker thread."""
         self.configure(state="normal")
         for ch in text:
             self.insert("end", ch, tag or ())
             self.see("end")
             self.update_idletasks()
-            if delay:
-                time.sleep(delay)
+            if char_delay > 0:
+                time.sleep(char_delay)
         self.insert("end", "\n", tag or ())
         self.see("end")
         self.configure(state="disabled")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Progress Bar (custom, glowing)
-# ══════════════════════════════════════════════════════════════════════════════
-
-class GlowProgressBar(tk.Canvas):
-    def __init__(self, master, **kwargs):
-        super().__init__(master, bg=C_BG2, highlightthickness=0,
-                         height=6, **kwargs)
-        self._pct = 0.0
-        self.bind("<Configure>", lambda _e: self._draw())
-
-    def set(self, pct):
-        self._pct = max(0.0, min(1.0, pct))
-        self._draw()
-
-    def _draw(self):
-        self.delete("all")
-        w = self.winfo_width()
-        h = self.winfo_height() or 6
-        # Track
-        self.create_rectangle(0, 0, w, h, fill=C_DIM, outline="")
-        # Fill
-        fw = int(w * self._pct)
-        if fw > 0:
-            self.create_rectangle(0, 0, fw, h, fill=C_GREEN2, outline="")
-            # Bright tip
-            tip = min(fw, 6)
-            self.create_rectangle(fw - tip, 0, fw, h, fill=C_GREEN, outline="")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  Module Button
 # ══════════════════════════════════════════════════════════════════════════════
-
 class ModuleButton(tk.Frame):
-    def __init__(self, master, number, label, phase, command, danger=False, **kwargs):
-        super().__init__(master, bg=C_PANEL, **kwargs)
+    def __init__(self, master, key, label, subtitle, command, color=C_GREEN, danger=False, **kw):
+        super().__init__(master, bg=C_PANEL, **kw)
         self._cmd     = command
+        self._color   = color
         self._danger  = danger
         self._active  = False
         self._hovered = False
+        self._dim_border  = "#440000" if danger else C_DIM
+        self._bright_border = C_RED if danger else color
 
-        acc = C_RED if danger else C_GREEN
-        acc2 = "#440000" if danger else C_DIM
-
-        # Outer border frame (simulates clip-path corner effect)
         self.configure(
-            highlightbackground=acc2,
+            highlightbackground=self._dim_border,
             highlightthickness=1,
             padx=0, pady=0
         )
 
-        inner = tk.Frame(self, bg=C_PANEL, padx=12, pady=8)
+        inner = tk.Frame(self, bg=C_PANEL, padx=10, pady=7)
         inner.pack(fill="both", expand=True)
 
-        num_lbl = tk.Label(inner, text=f"[{number}]",
-                           font=("Courier New", 11, "bold"),
-                           fg=acc, bg=C_PANEL)
-        num_lbl.pack(side="left", padx=(0, 10))
+        # Key label
+        key_lbl = tk.Label(inner, text=f"[{key}]",
+                           font=FONT_BOLD,
+                           fg=self._bright_border, bg=C_PANEL,
+                           width=4, anchor="w")
+        key_lbl.pack(side="left")
 
-        txt_frame = tk.Frame(inner, bg=C_PANEL)
-        txt_frame.pack(side="left", fill="both", expand=True)
+        # Info block
+        info = tk.Frame(inner, bg=C_PANEL)
+        info.pack(side="left", fill="both", expand=True)
 
-        tk.Label(txt_frame, text=label,
-                 font=("Courier New", 10, "bold"),
-                 fg=C_WHITE, bg=C_PANEL,
-                 anchor="w").pack(fill="x")
+        tk.Label(info, text=label, font=FONT_BOLD,
+                 fg=C_WHITE, bg=C_PANEL, anchor="w").pack(fill="x")
+        tk.Label(info, text=subtitle, font=FONT_XS,
+                 fg=C_GREEN3, bg=C_PANEL, anchor="w").pack(fill="x")
 
-        tk.Label(txt_frame, text=phase,
-                 font=("Courier New", 8),
-                 fg=C_GREEN3, bg=C_PANEL,
-                 anchor="w").pack(fill="x")
+        # Status badge
+        self._status_lbl = tk.Label(inner, text="READY", font=FONT_XS,
+                                    fg=C_GREEN3, bg=C_PANEL, padx=4)
+        self._status_lbl.pack(side="right")
 
-        # Bind clicks & hover to all children recursively
-        for widget in [self, inner, num_lbl, txt_frame] + list(txt_frame.winfo_children()) + list(inner.winfo_children()):
-            widget.bind("<Button-1>",   self._on_click)
-            widget.bind("<Enter>",      self._on_enter)
-            widget.bind("<Leave>",      self._on_leave)
+        # Collect all widgets for bg propagation
+        self._inner = inner
+        self._all   = [self, inner, key_lbl, info, self._status_lbl] + \
+                      list(info.winfo_children())
 
-        self._inner    = inner
-        self._num_lbl  = num_lbl
-        self._acc      = acc
-        self._acc2     = acc2
-        self._all_widgets = [self, inner, num_lbl, txt_frame] + list(txt_frame.winfo_children())
+        for w in self._all:
+            w.bind("<Button-1>", self._on_click)
+            w.bind("<Enter>",    self._on_enter)
+            w.bind("<Leave>",    self._on_leave)
 
-    def _on_enter(self, _e):
-        self._hovered = True
-        self._refresh()
-
-    def _on_leave(self, _e):
-        self._hovered = False
-        self._refresh()
-
+    # ── hover / active state ───────────────────────────────────────────────
+    def _on_enter(self, _e): self._hovered = True;  self._refresh()
+    def _on_leave(self, _e): self._hovered = False; self._refresh()
     def _on_click(self, _e):
-        if self._cmd:
-            self._cmd()
+        if self._cmd: self._cmd()
 
-    def set_active(self, state: bool):
+    def set_active(self, state):
         self._active = state
         self._refresh()
 
+    def set_status(self, text, color=None):
+        self._status_lbl.configure(text=text, fg=color or C_GREEN3)
+
     def _refresh(self):
-        if self._active or self._hovered:
-            bg = "#0a1a0a" if not self._danger else "#1a0000"
-            hl = self._acc
-        else:
-            bg = C_PANEL
-            hl = self._acc2
+        lit = self._active or self._hovered
+        bg  = ("#0d1a0d" if not self._danger else "#1a0000") if lit else C_PANEL
+        hl  = self._bright_border if lit else self._dim_border
         self.configure(highlightbackground=hl)
-        self._inner.configure(bg=bg)
-        self._num_lbl.configure(bg=bg)
-        for w in self.winfo_children():
-            try:
-                w.configure(bg=bg)
-                for ww in w.winfo_children():
-                    try:
-                        ww.configure(bg=bg)
-                        for www in ww.winfo_children():
-                            try: www.configure(bg=bg)
-                            except Exception: pass
-                    except Exception: pass
-            except Exception:
-                pass
+        def set_bg(w):
+            try: w.configure(bg=bg)
+            except Exception: pass
+            for c in w.winfo_children():
+                set_bg(c)
+        set_bg(self._inner)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Main Application
+#  Main Application Window
 # ══════════════════════════════════════════════════════════════════════════════
-
-class NSCSApp(ctk.CTk):
+class NSCSApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("NSCS — Linux Audit & Monitoring System v2.0.26")
-        self.geometry("1100x720")
-        self.minsize(900, 600)
-        self.configure(fg_color=C_BG)
+        self.title("NSCS OS PROJECT — Command Center v2.0")
+        self.geometry("1140x720")
+        self.minsize(920, 580)
+        self.configure(bg=C_BG)
 
-        # Make dirs
+        # Ensure dirs exist
+        MODULES_DIR.mkdir(parents=True, exist_ok=True)
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-        self._running_job  = None
-        self._active_btn   = None
-        self._clock_after  = None
+        self._running   = False        # True while a module thread is active
+        self._active_id = None         # Currently lit button key
+        self._btns      = {}           # key -> ModuleButton
+        self._clock_job = None
 
         self._build_ui()
         self._start_clock()
-        self._boot_sequence()
+        self._run_boot_sequence()
+        self._bind_keys()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-    # ── UI Construction ────────────────────────────────────────────────────
-
+    # ══════════════════════════════════════════════════════════════════════
+    #  UI Construction
+    # ══════════════════════════════════════════════════════════════════════
     def _build_ui(self):
-        # ── Root grid: left sidebar | right content
-        self.grid_columnconfigure(0, weight=0, minsize=320)
+        # Root grid: sidebar | main
+        self.grid_columnconfigure(0, weight=0, minsize=310)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # ── LEFT SIDEBAR ──────────────────────────────────────────────────
-        sidebar = tk.Frame(self, bg=C_BG2,
-                           highlightbackground=C_DIM,
-                           highlightthickness=1)
-        sidebar.grid(row=0, column=0, sticky="nsew")
-        sidebar.grid_rowconfigure(3, weight=1)
+        self._build_sidebar()
+        self._build_main()
+
+        # Start matrix after layout settles
+        self.after(200, self._matrix.start)
+
+    # ── SIDEBAR ───────────────────────────────────────────────────────────
+    def _build_sidebar(self):
+        sb = tk.Frame(self, bg=C_BG2,
+                      highlightbackground=C_BORDER, highlightthickness=1)
+        sb.grid(row=0, column=0, sticky="nsew")
+        sb.grid_rowconfigure(4, weight=1)
 
         # Matrix rain header
-        self.matrix = MatrixRain(sidebar, width=320, height=120)
-        self.matrix.pack(fill="x")
+        self._matrix = MatrixRain(sb, width=310, height=108)
+        self._matrix.grid(row=0, column=0, sticky="ew")
 
-        # ASCII banner over matrix (overlay label)
-        banner_frame = tk.Frame(sidebar, bg=C_BG2)
-        banner_frame.pack(fill="x", padx=8, pady=(4, 0))
-
+        # ASCII banner
+        banner = tk.Frame(sb, bg=C_BG2)
+        banner.grid(row=1, column=0, sticky="ew", padx=8, pady=(4, 0))
         ascii_art = (
             " ███╗   ██╗███████╗ ██████╗███████╗\n"
             " ████╗  ██║██╔════╝██╔════╝██╔════╝\n"
@@ -363,502 +385,565 @@ class NSCSApp(ctk.CTk):
             " ██║ ╚████║███████║╚██████╗███████║\n"
             " ╚═╝  ╚═══╝╚══════╝ ╚═════╝╚══════╝"
         )
-        tk.Label(banner_frame, text=ascii_art,
+        tk.Label(banner, text=ascii_art,
                  font=("Courier New", 7, "bold"),
                  fg=C_GREEN, bg=C_BG2,
                  justify="left").pack(anchor="w")
+        tk.Label(banner, text="OS PROJECT — COMMAND CENTER  v2.0",
+                 font=FONT_XS, fg=C_GREEN3, bg=C_BG2).pack(anchor="w", pady=(2, 0))
 
-        tk.Label(banner_frame,
-                 text="Linux Audit & Monitoring System  v2.0.26",
-                 font=("Courier New", 8),
-                 fg=C_GREEN3, bg=C_BG2).pack(anchor="w", pady=(2, 0))
+        # Clock + host
+        info_frame = tk.Frame(sb, bg=C_BG2)
+        info_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(6, 0))
+        tk.Frame(sb, bg=C_DIM, height=1).grid(row=2, column=0, sticky="ew")
+        clock_host = tk.Frame(sb, bg=C_BG2)
+        clock_host.grid(row=3, column=0, sticky="ew")
+        self._clock_lbl = tk.Label(clock_host, text="",
+                                   font=("Courier New", 9, "bold"),
+                                   fg=C_GREEN2, bg=C_BG2, anchor="w")
+        self._clock_lbl.pack(fill="x", padx=10, pady=(4, 1))
+        self._host_lbl = tk.Label(clock_host,
+                                  text=f"HOST: {os.uname().nodename}   USER: {os.getenv('USER', 'root')}",
+                                  font=FONT_XS, fg=C_GREEN3, bg=C_BG2, anchor="w")
+        self._host_lbl.pack(fill="x", padx=10, pady=(0, 4))
+        tk.Frame(sb, bg=C_DIM, height=1).grid(row=3, column=0, sticky="ew", pady=(0, 0))
 
-        # Divider
-        tk.Frame(sidebar, bg=C_DIM, height=1).pack(fill="x", pady=6)
+        # Module buttons
+        tk.Label(sb, text="█  SYSTEM MENU", font=FONT_XS,
+                 fg=C_GREEN3, bg=C_BG2, anchor="w").grid(
+                     row=3, column=0, sticky="ew", padx=10, pady=(28, 2))
 
-        # Clock
-        self.clock_lbl = tk.Label(sidebar,
-                                  text="",
-                                  font=("Courier New", 10, "bold"),
-                                  fg=C_GREEN2, bg=C_BG2)
-        self.clock_lbl.pack(fill="x", padx=12, pady=(0, 4))
+        btn_outer = tk.Frame(sb, bg=C_BG2)
+        btn_outer.grid(row=4, column=0, sticky="nsew", padx=6)
 
-        # System info row
-        info = tk.Label(sidebar,
-                        text=f"HOST: {os.uname().nodename}   USER: {os.getenv('USER','root')}",
-                        font=("Courier New", 8),
-                        fg=C_GREEN3, bg=C_BG2)
-        info.pack(fill="x", padx=12)
-
-        tk.Frame(sidebar, bg=C_DIM, height=1).pack(fill="x", pady=6)
-
-        # ── MENU BUTTONS ──────────────────────────────────────────────────
-        menu_label = tk.Label(sidebar, text="█ SYSTEM MENU",
-                              font=("Courier New", 9, "bold"),
-                              fg=C_GREEN3, bg=C_BG2, anchor="w")
-        menu_label.pack(fill="x", padx=12, pady=(0, 6))
-
-        modules = [
-            ("1",  "Hardware Audit",        "Phase 1 — audit_hardware_v2.sh",  self._run_hardware),
-            ("2",  "Software Audit",         "Phase 1 — audit_software.sh",     self._run_software),
-            ("3",  "Generate Reports",       "Phase 2 — generate_reports.sh",   self._run_reports),
-            ("4",  "Send Email Reports",     "Phase 3 — send_reports.sh",       self._run_email),
-            ("5",  "Setup Cron Jobs",        "Phase 4 — setup_cron.sh",         self._run_cron),
-            ("6",  "Remote Monitoring",      "Phase 5 — remote_monitor.sh",     self._run_remote),
-            ("10", "Help & Documentation",   "View docs",                       self._run_help),
-        ]
-
-        self._btns = {}
-        btn_frame = tk.Frame(sidebar, bg=C_BG2)
-        btn_frame.pack(fill="x", padx=8)
-
-        for num, label, phase, cmd in modules:
-            btn = ModuleButton(btn_frame, num, label, phase, cmd)
+        for key, label, subtitle, script, color, danger in MODULES:
+            btn = ModuleButton(
+                btn_outer, key, label, subtitle,
+                command=lambda k=key, sc=script, lb=label: self._launch(k, lb, sc),
+                color=color, danger=danger
+            )
             btn.pack(fill="x", pady=2)
-            self._btns[num] = btn
+            self._btns[key] = btn
 
-        tk.Frame(sidebar, bg=C_DIM, height=1).pack(fill="x", pady=6)
+        # Divider + utils
+        tk.Frame(sb, bg=C_DIM, height=1).grid(row=5, column=0, sticky="ew", pady=4)
 
-        exit_btn = ModuleButton(sidebar, "0", "Exit System", "Terminate session",
-                                self._on_close, danger=True)
-        exit_btn.pack(fill="x", padx=8, pady=(0, 8))
+        util = tk.Frame(sb, bg=C_BG2)
+        util.grid(row=6, column=0, sticky="ew", padx=6, pady=(0, 4))
 
-        # Deadline label
-        tk.Label(sidebar,
-                 text="DEADLINE: MAR 30, 2026 @ 08:00",
-                 font=("Courier New", 8, "bold"),
-                 fg="#444400", bg=C_BG2).pack(pady=(0, 8))
+        self._mk_util_btn(util, "[L]  LIST REPORTS", self._list_reports).pack(fill="x", pady=1)
+        self._mk_util_btn(util, "[C]  CLEAR TERMINAL", lambda: self.terminal.clear()).pack(fill="x", pady=1)
+        self._mk_util_btn(util, "[Q]  QUIT / EXIT", self._on_close,
+                          fg=C_RED, border="#440000").pack(fill="x", pady=1)
 
-        # ── RIGHT PANEL ───────────────────────────────────────────────────
-        right = tk.Frame(self, bg=C_BG)
-        right.grid(row=0, column=1, sticky="nsew")
-        right.grid_rowconfigure(1, weight=1)
-        right.grid_columnconfigure(0, weight=1)
+        # Report count badge
+        self._report_lbl = tk.Label(sb, text="REPORTS: 0 saved",
+                                    font=FONT_XS, fg=C_DIM, bg=C_BG2)
+        self._report_lbl.grid(row=7, column=0, sticky="ew", padx=10, pady=(2, 6))
 
-        # Top bar
-        top_bar = tk.Frame(right, bg=C_BG2, height=36,
-                           highlightbackground=C_DIM, highlightthickness=1)
-        top_bar.grid(row=0, column=0, sticky="ew")
-        top_bar.grid_propagate(False)
+    def _mk_util_btn(self, parent, text, cmd, fg=None, border=None):
+        f = tk.Frame(parent, bg=C_DIM2,
+                     highlightbackground=border or C_DIM,
+                     highlightthickness=1)
+        lbl = tk.Label(f, text=text, font=FONT_XS,
+                       fg=fg or C_GREEN3, bg=C_DIM2, anchor="w", padx=8, pady=5)
+        lbl.pack(fill="x")
+        for w in (f, lbl):
+            w.bind("<Button-1>", lambda _e, c=cmd: c())
+            w.bind("<Enter>",    lambda _e, w=f, l=lbl, fg=fg: (
+                w.configure(highlightbackground=C_GREEN3),
+                l.configure(bg=C_DIM, fg=fg or C_GREEN2)
+            ))
+            w.bind("<Leave>",    lambda _e, w=f, l=lbl, fg=fg, b=border: (
+                w.configure(highlightbackground=b or C_DIM),
+                l.configure(bg=C_DIM2, fg=fg or C_GREEN3)
+            ))
+        return f
 
-        self.module_title = tk.Label(top_bar,
-                                     text="[ NSCS AUDIT SYSTEM — SELECT A MODULE ]",
-                                     font=("Courier New", 10, "bold"),
-                                     fg=C_GREEN, bg=C_BG2, anchor="w")
-        self.module_title.pack(side="left", padx=12, pady=6)
+    # ── MAIN PANEL ────────────────────────────────────────────────────────
+    def _build_main(self):
+        main = tk.Frame(self, bg=C_BG)
+        main.grid(row=0, column=1, sticky="nsew")
+        main.grid_rowconfigure(1, weight=1)
+        main.grid_columnconfigure(0, weight=1)
 
-        self.status_dot = tk.Label(top_bar, text="●  READY",
-                                   font=("Courier New", 9),
-                                   fg=C_GREEN2, bg=C_BG2)
-        self.status_dot.pack(side="right", padx=12)
+        # Title bar
+        top = tk.Frame(main, bg=C_BG2,
+                       highlightbackground=C_BORDER, highlightthickness=1)
+        top.grid(row=0, column=0, sticky="ew")
+        self._title_lbl = tk.Label(top,
+                                   text="[ NSCS OS PROJECT — COMMAND CENTER ]",
+                                   font=FONT_BOLD, fg=C_GREEN, bg=C_BG2, anchor="w")
+        self._title_lbl.pack(side="left", padx=12, pady=6)
+        self._status_lbl = tk.Label(top, text="●  READY",
+                                    font=FONT_SM, fg=C_GREEN2, bg=C_BG2)
+        self._status_lbl.pack(side="right", padx=12)
 
-        # Terminal output area
-        term_frame = tk.Frame(right, bg=C_BG,
-                              highlightbackground=C_DIM, highlightthickness=1)
+        # Terminal frame
+        term_frame = tk.Frame(main, bg=C_BG,
+                              highlightbackground=C_BORDER, highlightthickness=1)
         term_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
         term_frame.grid_rowconfigure(0, weight=1)
         term_frame.grid_columnconfigure(0, weight=1)
 
-        self.terminal = TerminalOutput(term_frame)
+        self.terminal = Terminal(term_frame)
         self.terminal.grid(row=0, column=0, sticky="nsew")
 
-        scroll = tk.Scrollbar(term_frame, command=self.terminal.yview,
-                              bg=C_BG2, troughcolor=C_BG, width=8,
-                              relief="flat", borderwidth=0)
-        scroll.grid(row=0, column=1, sticky="ns")
-        self.terminal.configure(yscrollcommand=scroll.set)
+        sb = tk.Scrollbar(term_frame, command=self.terminal.yview,
+                          bg=C_BG2, troughcolor=C_BG,
+                          width=8, relief="flat", borderwidth=0)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.terminal.configure(yscrollcommand=sb.set)
 
         # Progress bar
-        self.progress = GlowProgressBar(right)
-        self.progress.grid(row=2, column=0, sticky="ew", padx=4, pady=(0, 2))
+        self._progress = ProgressBar(main)
+        self._progress.grid(row=2, column=0, sticky="ew", padx=4, pady=(0, 2))
 
-        # Bottom prompt bar
-        bottom = tk.Frame(right, bg=C_BG2,
-                          highlightbackground=C_DIM, highlightthickness=1)
-        bottom.grid(row=3, column=0, sticky="ew")
+        # Prompt bar
+        prompt_bar = tk.Frame(main, bg=C_BG2,
+                              highlightbackground=C_BORDER, highlightthickness=1)
+        prompt_bar.grid(row=3, column=0, sticky="ew")
 
-        tk.Label(bottom, text="root@nscs-audit:~$",
-                 font=("Courier New", 10, "bold"),
-                 fg=C_GREEN, bg=C_BG2).pack(side="left", padx=(10, 6), pady=6)
+        tk.Label(prompt_bar, text="root@nscs-audit:~$",
+                 font=FONT_BOLD, fg=C_GREEN, bg=C_BG2).pack(side="left", padx=(10, 6), pady=6)
 
-        self.cmd_var = tk.StringVar()
-        self.cmd_entry = tk.Entry(bottom,
-                                  textvariable=self.cmd_var,
-                                  font=("Courier New", 10),
-                                  fg=C_GREEN, bg=C_BG, insertbackground=C_GREEN,
-                                  relief="flat", borderwidth=0)
-        self.cmd_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        self.cmd_entry.bind("<Return>", self._on_cmd_enter)
+        self._cmd_var = tk.StringVar()
+        self._cmd_entry = tk.Entry(prompt_bar,
+                                   textvariable=self._cmd_var,
+                                   font=FONT,
+                                   fg=C_GREEN, bg=C_BG,
+                                   insertbackground=C_GREEN,
+                                   relief="flat", borderwidth=0)
+        self._cmd_entry.pack(side="left", fill="x", expand=True)
+        self._cmd_entry.bind("<Return>", self._on_cmd)
 
-        tk.Label(bottom, text="[ENTER] to run",
-                 font=("Courier New", 8),
-                 fg=C_GREEN3, bg=C_BG2).pack(side="right", padx=10)
+        tk.Label(prompt_bar, text="[ENTER] to run",
+                 font=FONT_XS, fg=C_GREEN3, bg=C_BG2).pack(side="right", padx=10)
 
-        # Start matrix
-        self.after(200, self.matrix.start)
-
-    # ── Clock ──────────────────────────────────────────────────────────────
-
+    # ══════════════════════════════════════════════════════════════════════
+    #  Clock
+    # ══════════════════════════════════════════════════════════════════════
     def _start_clock(self):
         def tick():
-            now = datetime.now().strftime("%A %d %b %Y   %H:%M:%S")
             try:
-                self.clock_lbl.configure(text=f"[ {now} ]")
+                now = datetime.now().strftime("[ %a  %d %b %Y   %H:%M:%S ]")
+                self._clock_lbl.configure(text=now)
+                self._clock_job = self.after(1000, tick)
             except Exception:
-                return
-            self._clock_after = self.after(1000, tick)
+                pass
         tick()
 
-    # ── Boot sequence ──────────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    #  Key bindings  (matches main_menu.sh: 1-6, L, C, Q)
+    # ══════════════════════════════════════════════════════════════════════
+    def _bind_keys(self):
+        for key, label, subtitle, script, color, danger in MODULES:
+            self.bind(key, lambda _e, k=key, s=script, l=label:
+                      self._launch(k, l, s))
+        self.bind("l", lambda _e: self._list_reports())
+        self.bind("L", lambda _e: self._list_reports())
+        self.bind("c", lambda _e: self.terminal.clear())
+        self.bind("C", lambda _e: self.terminal.clear())
+        self.bind("q", lambda _e: self._on_close())
+        self.bind("Q", lambda _e: self._on_close())
 
-    def _boot_sequence(self):
+    # ══════════════════════════════════════════════════════════════════════
+    #  Boot Sequence
+    # ══════════════════════════════════════════════════════════════════════
+    def _run_boot_sequence(self):
         def run():
             lines = [
-                ("head", "▶ NSCS AUDIT SYSTEM — BOOT SEQUENCE", 0.0),
-                ("dim",  "─" * 54, 0.0),
-                ("dim",  "[0.000000] Initializing kernel audit subsystem...", 0.04),
-                ("",     "[0.041233] Loading modules from: " + str(MODULES_DIR), 0.04),
-                ("ok",   "[0.088712] audit_hardware_v2.sh ............ [ OK ]", 0.04),
-                ("ok",   "[0.120441] audit_software.sh ............... [ OK ]", 0.04),
-                ("ok",   "[0.155890] generate_reports.sh ............. [ OK ]", 0.04),
-                ("ok",   "[0.189003] send_reports.sh ................. [ OK ]", 0.04),
-                ("ok",   "[0.221567] setup_cron.sh ................... [ OK ]", 0.04),
-                ("ok",   "[0.255100] remote_monitor.sh ............... [ OK ]", 0.04),
-                ("warn", "[0.290340] Checking log directory...", 0.04),
-                ("ok",   f"[0.312500] {LOG_DIR} ........... [ OK ]", 0.04),
-                ("ok",   "[0.340000] All systems nominal — interface ready.", 0.04),
-                ("dim",  "─" * 54, 0.0),
-                ("head", ">>> SYSTEM READY — SELECT A MODULE <<<", 0.0),
+                ("head", "▶ NSCS OS PROJECT — BOOT SEQUENCE v2.0"),
+                ("dim",  "─" * 56),
+                ("dim",  f"[0.000000] Initializing kernel audit subsystem..."),
+                ("",     f"[0.041233] Loading modules from: {MODULES_DIR}"),
             ]
-            time.sleep(0.3)
-            for tag, text, delay in lines:
-                self.terminal.stream_line(text, tag, delay=delay)
-                time.sleep(0.07)
+            for key, label, subtitle, script, color, danger in MODULES:
+                status = "[ OK ]" if (MODULES_DIR / script).exists() else "[MISSING]"
+                tag = "ok" if status == "[ OK ]" else "warn"
+                lines.append((tag, f"[0.{random.randint(100000,300000)}] {script:<30s} {status}"))
+
+            lines += [
+                ("warn", f"[0.290340] Checking log directory..."),
+                ("ok",   f"[0.312500] {LOG_DIR} — [ OK ]"),
+                ("ok",   "[0.340000] All systems nominal."),
+                ("dim",  "─" * 56),
+                ("head", ">>> SYSTEM READY — SELECT A MODULE  [1-6 / L / Q] <<<"),
+            ]
+
+            time.sleep(0.2)
+            for tag, text in lines:
+                if tag:
+                    self.terminal.typewrite(text, tag, char_delay=0.0)
+                else:
+                    self.terminal.write(text)
+                time.sleep(0.06)
 
         threading.Thread(target=run, daemon=True).start()
 
-    # ── Module execution ───────────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    #  Module Launch  — mirrors main_menu.sh's launch_module()
+    # ══════════════════════════════════════════════════════════════════════
+    def _launch(self, key, label, script_name):
+        if self._running:
+            self.terminal.write("\n[!!] A module is already running — please wait.", "warn")
+            return
 
-    def _set_active_btn(self, key):
-        if self._active_btn:
+        script_path = MODULES_DIR / script_name
+
+        def job():
+            self._running = True
+            self._set_active(key)
+            self._set_status("● RUNNING", C_YELLOW)
+            self._set_title(f"[ LAUNCHING  MODULE  0{key}  —  {label} ]")
+            self._btns[key].set_status("RUNNING", C_YELLOW)
+            self._progress.start_pulse()
+
+            # Header
+            self.terminal.clear()
+            self.terminal.write(f"▶ LAUNCHING: {label}", "head")
+            self.terminal.write("─" * 56, "dim")
+            self.terminal.write(f"$ {script_path}", "dim")
+            self.terminal.write(f"  Time   : {datetime.now().strftime('%H:%M:%S')}", "dim")
+            self.terminal.write("")
+
+            if not script_path.exists():
+                # ── DEMO MODE (no real script) ─────────────────────────
+                self.terminal.write(f"[!!] Script not found: {script_path}", "warn")
+                self.terminal.write("     Running in DEMO mode...", "warn")
+                self.terminal.write("")
+                self._run_demo(label)
+            else:
+                # ── REAL MODE — execute the shell script ───────────────
+                self._run_script(script_path, label)
+
+            # Finish
+            self._progress.stop_pulse()
+            self._progress.set_pct(1.0)
+            time.sleep(0.4)
+            self._progress.set_pct(0.0)
+
+            self._set_status("● READY", C_GREEN2)
+            self._set_title("[ NSCS OS PROJECT — COMMAND CENTER ]")
+            self._btns[key].set_status("READY")
+            self._set_active(None)
+            self._running = False
+
+            # Update report count
             try:
-                self._btns[self._active_btn].set_active(False)
+                n = len(list(REPORT_DIR.glob("*")))
+                self._report_lbl.configure(text=f"REPORTS: {n} saved",
+                                           fg=C_GREEN3 if n else C_DIM)
             except Exception:
                 pass
-        self._active_btn = key
+
+        threading.Thread(target=job, daemon=True).start()
+
+    # ── Real script execution ──────────────────────────────────────────────
+    def _run_script(self, script_path, label):
+        import re
+        ANSI = re.compile(r'\x1b\[[0-9;]*[mABCDEFGHJKSTfisu]'
+                          r'|\x1b\(B|\x1b=|\r')
+        SECTION_KW = [
+            "motherboard","bios","cpu","gpu","memory","disk","partition",
+            "network","usb","operating system","kernel","user account",
+            "processes","services","firewall","security","package",
+        ]
+        DELAY = {"head":0.022,"ok":0.010,"err":0.016,"warn":0.016,
+                 "white":0.008,"dim":0.005,"":0.005}
+
+        try:
+            script_path.chmod(script_path.stat().st_mode | 0o111)
+            proc = subprocess.Popen(
+                ["bash", str(script_path), "--gui"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env={**os.environ, "TERM": "dumb", "NO_COLOR": "1"},
+            )
+            buf = b""
+            lc  = 0
+            while True:
+                ch = proc.stdout.read(1)
+                if not ch:
+                    break
+                buf += ch
+                if ch == b"\n":
+                    raw  = buf.decode("utf-8", errors="replace").rstrip()
+                    buf  = b""
+                    line = ANSI.sub("", raw)
+                    if not line.strip():
+                        continue
+                    garbled = sum(1 for c in line if ord(c) == 0xFFFD)
+                    if garbled / max(len(line), 1) > 0.4:
+                        continue
+
+                    lo  = line.lower()
+                    is_section = any(k in lo for k in SECTION_KW)
+                    tag = ""
+                    if any(w in lo for w in ["error","fail","[x]"]):
+                        tag = "err"
+                    elif any(w in lo for w in ["[ ok ]","[ok]","success","saved","complete"]):
+                        tag = "ok"
+                    elif any(w in lo for w in ["warn","[!!]","caution","inactive"]):
+                        tag = "warn"
+                    elif any(w in lo for w in [">>>","initializing","launching"]):
+                        tag = "head"
+                    elif "▶" in line or "▸" in line:
+                        tag = "white"
+                    else:
+                        tag = "dim"
+
+                    if is_section and lc > 0:
+                        self.terminal.write("")
+                        self.terminal.write("  " + "─" * 52, "dim")
+                        self.terminal.write("")
+                        time.sleep(0.15)
+
+                    self.terminal.typewrite(line, tag, char_delay=DELAY.get(tag, 0.006))
+                    lc += 1
+                    time.sleep(0.04)
+
+            proc.wait()
+            code = proc.returncode
+            self.terminal.write("")
+            if code == 0:
+                self.terminal.write(f"[✓] {label} completed successfully.", "ok")
+            else:
+                self.terminal.write(f"[✗] Process exited with code {code}.", "err")
+
+        except Exception as exc:
+            self.terminal.write(f"[✗] Failed to launch module: {exc}", "err")
+
+    # ── Demo mode (same as original but cleaner) ───────────────────────────
+    DEMO_DATA = {
+        "HARDWARE AUDIT": [
+            ("",    "Scanning CPU information..."),
+            ("ok",  "[OK] CPU: Intel Core i7-12700K @ 3.60GHz (12 cores / 20 threads)"),
+            ("ok",  "[OK] CPU Cache: L1=480KB  L2=12MB  L3=25MB"),
+            ("",    "Scanning memory..."),
+            ("ok",  "[OK] RAM: 32768 MB DDR5 @ 4800 MHz — 2 DIMMs installed"),
+            ("",    "Scanning storage devices..."),
+            ("ok",  "[OK] /dev/nvme0n1: 512 GB NVMe SSD — SAMSUNG 980 PRO"),
+            ("ok",  "[OK] /dev/sda:      2.0 TB HDD — Seagate Barracuda"),
+            ("",    "Scanning GPU..."),
+            ("ok",  "[OK] GPU: NVIDIA GeForce RTX 3070 Ti (8192 MB VRAM)"),
+            ("ok",  "[OK] Driver: 535.171.04  |  CUDA: 12.3"),
+            ("",    "Scanning network interfaces..."),
+            ("ok",  "[OK] eth0:  1 Gbps Ethernet — UP — 192.168.1.42/24"),
+            ("ok",  "[OK] wlan0: 802.11ax Wi-Fi — UP"),
+            ("ok",  f"[✓] Report saved → {REPORT_DIR}/hardware_report.json"),
+        ],
+        "SOFTWARE AUDIT": [
+            ("",    "Checking kernel version..."),
+            ("ok",  "[OK] Kernel: Linux 6.5.0-35-generic #35-Ubuntu SMP x86_64"),
+            ("",    "Enumerating installed packages..."),
+            ("ok",  "[OK] dpkg: 1,847 packages installed"),
+            ("ok",  "[OK] snap:     12 snaps active"),
+            ("",    "Scanning running services..."),
+            ("ok",  "[OK] Active: 43  |  Enabled: 12  |  Failed: 0"),
+            ("",    "Checking user accounts..."),
+            ("ok",  "[OK] Users: root / nscs / audit"),
+            ("",    "Checking firewall status..."),
+            ("ok",  "[OK] UFW: active — 3 rules"),
+            ("ok",  f"[✓] Report saved → {REPORT_DIR}/software_audit.json"),
+        ],
+        "GENERATE REPORTS": [
+            ("",    "Loading audit data..."),
+            ("ok",  "[OK] hardware_report.json   loaded (48 KB)"),
+            ("ok",  "[OK] software_audit.json    loaded (32 KB)"),
+            ("",    "Generating TXT summary..."),
+            ("ok",  "[OK] audit_summary.txt      created (18 KB)"),
+            ("",    "Generating HTML dashboard..."),
+            ("ok",  "[OK] report.html            created (94 KB)"),
+            ("",    "Generating PDF summary..."),
+            ("ok",  "[OK] audit_summary.pdf      created (2.1 MB)"),
+            ("ok",  f"[✓] All reports saved → {REPORT_DIR}/"),
+        ],
+        "SEND REPORTS": [
+            ("",    "Configuring SMTP relay..."),
+            ("ok",  "[OK] SMTP: smtp.gmail.com:587 — STARTTLS"),
+            ("",    "Authenticating..."),
+            ("ok",  "[OK] OAuth2 credentials loaded"),
+            ("",    "Attaching reports..."),
+            ("ok",  "[OK] audit_summary.pdf   2.1 MB  attached"),
+            ("ok",  "[OK] report.html          94 KB   attached"),
+            ("ok",  "[OK] Delivered → admin@nscs.edu"),
+            ("ok",  "[✓] Email transmission complete"),
+        ],
+        "CRON AUTOMATION": [
+            ("",    "Loading cron configuration..."),
+            ("ok",  "[OK] Daily audit:    0 2 * * *   (02:00 AM every day)"),
+            ("ok",  "[OK] Weekly report:  0 8 * * 1   (Monday 08:00)"),
+            ("ok",  "[OK] Email dispatch: 30 8 * * 1  (Monday 08:30)"),
+            ("ok",  "[OK] Log rotation:   0 0 * * 0   (weekly)"),
+            ("ok",  "[✓] Cron entries written — automation active"),
+        ],
+        "REMOTE MONITOR": [
+            ("",    "Initializing SSH connections..."),
+            ("ok",  "[OK] 192.168.1.10   ONLINE   latency: 12ms"),
+            ("ok",  "[OK] 192.168.1.11   ONLINE   latency:  8ms"),
+            ("ok",  "[OK] 192.168.1.12   ONLINE   latency: 15ms"),
+            ("warn","[!!] 192.168.1.13   TIMEOUT  latency: ---ms"),
+            ("",    "Collecting remote metrics..."),
+            ("ok",  "[OK] CPU usage avg: 14%  across 3 nodes"),
+            ("ok",  "[OK] RAM usage avg: 61%  across 3 nodes"),
+            ("",    "Starting monitoring daemon..."),
+            ("ok",  "[OK] Daemon started — PID 4821"),
+            ("ok",  "[✓] Remote telemetry stream LIVE"),
+        ],
+    }
+
+    def _run_demo(self, label):
+        lines = self.DEMO_DATA.get(label.upper(),
+                [("warn", "[DEMO] No demo data for this module.")])
+        total = len(lines)
+        for i, (tag, text) in enumerate(lines):
+            if not text:
+                self.terminal.write("")
+            else:
+                delay = {"ok":0.010, "warn":0.014, "err":0.016}.get(tag, 0.006)
+                self.terminal.typewrite(text, tag, char_delay=delay)
+            self._progress.set_pct((i + 1) / total * 0.9)
+            time.sleep(0.15)
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  List Reports  — mirrors main_menu.sh's list_reports()
+    # ══════════════════════════════════════════════════════════════════════
+    def _list_reports(self):
+        if self._running:
+            return
+        def run():
+            self.terminal.clear()
+            self.terminal.write("▶ SAVED REPORTS", "head")
+            self.terminal.write("─" * 56, "dim")
+            self.terminal.write(f"  Directory: {REPORT_DIR}", "dim")
+            self.terminal.write("")
+
+            if not REPORT_DIR.exists():
+                self.terminal.write(f"[!!] Directory not found: {REPORT_DIR}", "warn")
+                return
+
+            EXT_COLOR = {"json":"ok", "txt":"white", "html":"info", "pdf":"warn"}
+            found = False
+            for f in sorted(REPORT_DIR.iterdir()):
+                if not f.is_file():
+                    continue
+                found = True
+                ext   = f.suffix.lstrip(".")
+                color = EXT_COLOR.get(ext, "dim")
+                try:
+                    size = f"{f.stat().st_size / 1024:.1f} KB"
+                except Exception:
+                    size = "?"
+                self.terminal.typewrite(
+                    f"  [{ext.upper():4s}]  {f.name:<40s}  {size}",
+                    color, char_delay=0.004
+                )
+                time.sleep(0.04)
+
+            if not found:
+                self.terminal.write("[!!] No reports found.", "warn")
+                self.terminal.write("     Run modules 1→2 first, then module 3.", "dim")
+
+            self.terminal.write("")
+            self.terminal.write("─" * 56, "dim")
+
+        threading.Thread(target=run, daemon=True).start()
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  Command Entry  — mirrors bash main_menu.sh prompt
+    # ══════════════════════════════════════════════════════════════════════
+    def _on_cmd(self, _event):
+        cmd = self._cmd_var.get().strip()
+        self._cmd_var.set("")
+        if not cmd:
+            return
+        self.terminal.write(f"\nroot@nscs-audit:~$ {cmd}", "prompt")
+
+        # Module shortcuts
+        for key, label, subtitle, script, color, danger in MODULES:
+            if cmd == key or cmd.upper() == f"F{key}":
+                self._launch(key, label, script)
+                return
+
+        # Other commands
+        cmd_l = cmd.lower()
+        if cmd_l in ("l", "list"):
+            self._list_reports()
+        elif cmd_l in ("q", "quit", "exit", "0"):
+            self._on_close()
+        elif cmd_l in ("c", "clear"):
+            self.terminal.clear()
+        elif cmd_l == "whoami":
+            self.terminal.write("root", "ok")
+        elif cmd_l in ("uname", "uname -a"):
+            self.terminal.write(
+                f"Linux {os.uname().nodename} {os.uname().release} "
+                f"#1 SMP {os.uname().machine} GNU/Linux", "ok"
+            )
+        elif cmd_l == "ls modules/":
+            if MODULES_DIR.exists():
+                for f in sorted(MODULES_DIR.glob("*.sh")):
+                    self.terminal.write(f"  -rwxr-xr-x  {f.name}", "ok")
+            else:
+                self.terminal.write(f"  ls: {MODULES_DIR}: No such directory", "warn")
+        elif cmd_l == "pwd":
+            self.terminal.write(str(SCRIPT_DIR), "ok")
+        elif cmd_l == "date":
+            self.terminal.write(datetime.now().strftime("%A %d %B %Y %H:%M:%S"), "ok")
+        elif cmd_l in ("help", "?"):
+            self.terminal.write("  Commands: 1-6  L  C  Q  whoami  uname  pwd  date  ls modules/", "dim")
+        else:
+            self.terminal.write(f"  bash: {cmd}: command not found", "err")
+            self.terminal.write("  Type 'help' for available commands.", "dim")
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  Helpers
+    # ══════════════════════════════════════════════════════════════════════
+    def _set_title(self, text):
+        try: self._title_lbl.configure(text=text)
+        except Exception: pass
+
+    def _set_status(self, text, color=None):
+        try: self._status_lbl.configure(text=text, fg=color or C_GREEN2)
+        except Exception: pass
+
+    def _set_active(self, key):
+        if self._active_id and self._active_id in self._btns:
+            self._btns[self._active_id].set_active(False)
+        self._active_id = key
         if key and key in self._btns:
             self._btns[key].set_active(True)
 
-    def _set_status(self, text, color=None):
-        self.status_dot.configure(text=text, fg=color or C_GREEN2)
-
-    def _run_module(self, btn_key, title, script_name):
-        if self._running_job and self._running_job.is_alive():
-            self.terminal.append("\n[!!] A module is already running — please wait.", "warn")
-            return
-
-        def job():
-            self._set_active_btn(btn_key)
-            self._set_status("● RUNNING", C_YELLOW)
-            self.module_title.configure(text=f"[ EXECUTING: {title.upper()} ]")
-
-            self.terminal.clear()
-            self.terminal.append(f"▶ LAUNCHING: {title}", "head")
-            self.terminal.append("─" * 54, "dim")
-            self.terminal.append(f"$ {MODULES_DIR / script_name}", "dim")
-            self.terminal.append("")
-
-            script_path = MODULES_DIR / script_name
-
-            if not script_path.exists():
-                # Simulate if module not present
-                self.terminal.append(f"[!!] Module not found: {script_path}", "warn")
-                self.terminal.append("     Running in DEMO mode...", "warn")
-                self.terminal.append("")
-                self._demo_run(title)
-            else:
-                # Make executable
-                script_path.chmod(script_path.stat().st_mode | 0o111)
-                # Run real script — read raw bytes, strip ANSI, decode safely
-                try:
-                    import re
-                    ansi_escape = re.compile(
-                        r'\x1b\[[0-9;]*[mABCDEFGHJKSTfisu]'
-                        r'|\x1b\(B|\x1b=|\r'
-                    )
-                    proc = subprocess.Popen(
-                        ["bash", str(script_path), "--gui"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        env={**os.environ, "TERM": "dumb", "NO_COLOR": "1"},
-                    )
-                    buf = b""
-                    line_count = 0
-                    section_keywords = [
-                        "motherboard", "bios", "cpu information", "gpu", "memory",
-                        "disk", "partition", "network interface", "usb",
-                        "operating system", "kernel", "user account",
-                        "processes", "services", "network exposure",
-                        "package", "firewall", "security",
-                    ]
-
-                    while True:
-                        ch = proc.stdout.read(1)
-                        if not ch:
-                            break
-                        buf += ch
-                        if ch == b"\n":
-                            line = buf.decode("utf-8", errors="replace").rstrip()
-                            buf = b""
-                            line = ansi_escape.sub("", line)
-                            if not line.strip():
-                                continue
-                            clean = line.strip()
-                            if clean:
-                                garbled = sum(1 for c in clean if ord(c) == 0xfffd)
-                                if garbled / len(clean) > 0.4:
-                                    continue
-
-                            lo = line.lower()
-
-                            # detect section header lines
-                            is_section = any(kw in lo for kw in section_keywords)
-
-                            # classify tag
-                            tag = ""
-                            if any(w in lo for w in ["error", "fail", "[x]"]):
-                                tag = "err"
-                            elif any(w in lo for w in ["[ ok ]", "ok ]", "success", "[ok]", "saved", "complete", "[auto]"]):
-                                tag = "ok"
-                            elif any(w in lo for w in ["warn", "[!!]", "caution", "inactive", "risk"]):
-                                tag = "warn"
-                            elif any(w in lo for w in [">>>", "initializing", "launching"]):
-                                tag = "head"
-                            elif "\u25b6" in line or "\u25b8" in line:
-                                tag = "white"
-                            else:
-                                tag = "dim"
-
-                            # insert visual section break
-                            if is_section and line_count > 0:
-                                self.terminal.append("", "")
-                                self.terminal.append("  " + "\u2500" * 52, "dim")
-                                self.terminal.append("", "")
-                                time.sleep(0.18)
-
-                            # typewriter delays per tag
-                            delay_map = {"head": 0.025, "ok": 0.012, "err": 0.018,
-                                         "warn": 0.018, "white": 0.010, "dim": 0.006, "": 0.006}
-                            self.terminal.stream_line(line, tag, delay=delay_map.get(tag, 0.008))
-
-                            # animate progress bar slowly when script prints a bar line
-                            if "[" in line and "\u2588" in line:
-                                for step in range(11):
-                                    self.progress.set(step / 10)
-                                    time.sleep(0.10)
-                            else:
-                                self._progress_pulse()
-
-                            line_count += 1
-                            # small pause between data lines
-                            if tag in ("white", "dim") and not is_section:
-                                time.sleep(0.055)
-                    proc.wait()
-                    code = proc.returncode
-                    self.terminal.append("")
-                    if code == 0:
-                        self.terminal.append(f"[✓] {title} completed successfully.", "ok")
-                    else:
-                        self.terminal.append(f"[✗] Process exited with code {code}.", "err")
-                except Exception as exc:
-                    self.terminal.append(f"[✗] Failed to run module: {exc}", "err")
-
-            self.progress.set(1.0)
-            time.sleep(0.4)
-            self.progress.set(0.0)
-            self._set_status("● READY", C_GREEN2)
-            self.module_title.configure(text="[ NSCS AUDIT SYSTEM — SELECT A MODULE ]")
-            self._set_active_btn(None)
-
-        self._running_job = threading.Thread(target=job, daemon=True)
-        self._running_job.start()
-
-    def _progress_pulse(self):
-        """Indeterminate progress animation — call from worker thread."""
-        import math
-        t = time.time()
-        val = (math.sin(t * 3) + 1) / 2
-        try:
-            self.progress.set(val)
-        except Exception:
-            pass
-
-    def _demo_run(self, title):
-        """Fake animated output when module script is missing."""
-        demo_lines = {
-            "Hardware Audit": [
-                ("", "Scanning CPU information..."),
-                ("ok", "[OK] CPU: Intel Core i7-12700K @ 3.60GHz (12 cores)"),
-                ("", "Scanning memory..."),
-                ("ok", "[OK] RAM: 32768 MB DDR5 @ 4800 MHz"),
-                ("", "Scanning storage devices..."),
-                ("ok", "[OK] /dev/nvme0n1: 512 GB NVMe SSD"),
-                ("ok", "[OK] /dev/sda: 2.0 TB HDD"),
-                ("", "Scanning GPU..."),
-                ("ok", "[OK] GPU: NVIDIA GeForce RTX 3070 Ti (8192 MB)"),
-                ("", "Scanning network interfaces..."),
-                ("ok", "[OK] eth0: 1Gbps Ethernet (connected)"),
-                ("ok", "[OK] wlan0: 802.11ax Wi-Fi"),
-                ("ok", f"[✓] Report saved → {REPORT_DIR}/hardware_report_full.json"),
-            ],
-            "Software Audit": [
-                ("", "Checking kernel version..."),
-                ("ok", "[OK] Kernel: Linux 6.5.0-35-generic #35-Ubuntu SMP x86_64"),
-                ("", "Enumerating installed packages..."),
-                ("ok", "[OK] dpkg: 1,847 packages installed"),
-                ("", "Scanning running services..."),
-                ("ok", "[OK] Active services: 43  |  Enabled: 12"),
-                ("", "Checking user accounts..."),
-                ("ok", "[OK] Users found: 3 (root, nscs, audit)"),
-                ("ok", f"[✓] Report saved → {REPORT_DIR}/software_audit.json"),
-            ],
-            "Generate Reports": [
-                ("", "Loading audit data..."),
-                ("ok", "[OK] hardware_report_full.json loaded"),
-                ("ok", "[OK] software_audit.json loaded"),
-                ("", "Generating HTML dashboard..."),
-                ("ok", "[OK] report.html (48 KB) created"),
-                ("", "Generating PDF summary..."),
-                ("ok", "[OK] audit_summary.pdf (2.1 MB) created"),
-                ("ok", f"[✓] All reports saved → {REPORT_DIR}"),
-            ],
-            "Send Email Reports": [
-                ("", "Configuring SMTP relay..."),
-                ("ok", "[OK] SMTP: smtp.gmail.com:587 (STARTTLS)"),
-                ("", "Authenticating..."),
-                ("ok", "[OK] OAuth2 credentials loaded"),
-                ("", "Attaching reports..."),
-                ("ok", "[OK] Attached: audit_summary.pdf (2.1 MB)"),
-                ("ok", "[OK] Delivered to: admin@nscs.edu"),
-                ("ok", "[✓] Email transmission complete"),
-            ],
-            "Setup Cron Jobs": [
-                ("", "Loading cron configuration..."),
-                ("ok", "[OK] Daily audit:   0 2 * * *  (02:00 AM)"),
-                ("ok", "[OK] Weekly report: 0 8 * * 1  (Mon 08:00)"),
-                ("ok", "[OK] Email dispatch:30 8 * * 1  (Mon 08:30)"),
-                ("ok", "[OK] Log rotation:  0 0 * * 0  (weekly)"),
-                ("ok", "[✓] Cron entries written — automation active"),
-            ],
-            "Remote Monitoring": [
-                ("", "Initializing SSH connections..."),
-                ("ok", "[OK] 192.168.1.10  ONLINE  (latency: 12ms)"),
-                ("ok", "[OK] 192.168.1.11  ONLINE  (latency:  8ms)"),
-                ("ok", "[OK] 192.168.1.12  ONLINE  (latency: 15ms)"),
-                ("", "Starting monitoring daemon..."),
-                ("ok", "[OK] Daemon started — PID 4821"),
-                ("ok", "[✓] Remote telemetry stream LIVE"),
-            ],
-        }
-        lines = demo_lines.get(title, [("warn", "[DEMO] No demo data for this module.")])
-        total = len(lines)
-        for i, (tag, text) in enumerate(lines):
-            self.terminal.append(text, tag)
-            self.progress.set((i + 1) / total)
-            time.sleep(0.18)
-
-    # ── Button callbacks ───────────────────────────────────────────────────
-
-    def _run_hardware(self): self._run_module("1",  "Hardware Audit",        "audit_hardware_v2.sh")
-    def _run_software(self): self._run_module("2",  "Software Audit",        "audit_software.sh")
-    def _run_reports(self):  self._run_module("3",  "Generate Reports",      "generate_reports.sh")
-    def _run_email(self):    self._run_module("4",  "Send Email Reports",    "send_reports.sh")
-    def _run_cron(self):     self._run_module("5",  "Setup Cron Jobs",       "setup_cron.sh")
-    def _run_remote(self):   self._run_module("6",  "Remote Monitoring",     "remote_monitor.sh")
-
-    def _run_help(self):
-        self._set_active_btn("10")
-        self.terminal.clear()
-        self.terminal.append("▶ HELP & DOCUMENTATION", "head")
-        self.terminal.append("─" * 54, "dim")
-        docs = [
-            "00_START_HERE.txt",
-            "QUICK_START.md",
-            "README_HARDWARE.md",
-            "IMPLEMENTATION_SUMMARY.md",
-            "PROJECT_ARCHITECTURE.md",
-        ]
-        docs_dir = SCRIPT_DIR / "docs"
-        for doc in docs:
-            path = docs_dir / doc
-            tag = "ok" if path.exists() else "warn"
-            status = "FOUND" if path.exists() else "NOT FOUND"
-            self.terminal.append(f"  [{status}]  {doc}", tag)
-            time.sleep(0.05)
-        self.terminal.append("")
-        self.terminal.append(f"  Docs directory: {docs_dir}", "dim")
-        self.terminal.append("")
-        self.terminal.append("  Modules available:", "white")
-        for m in MODULES_DIR.glob("*.sh") if MODULES_DIR.exists() else []:
-            self.terminal.append(f"    ✓  {m.name}", "ok")
-        self._set_active_btn(None)
-
-    # ── Command entry ──────────────────────────────────────────────────────
-
-    def _on_cmd_enter(self, _event):
-        cmd = self.cmd_var.get().strip()
-        self.cmd_var.set("")
-        if not cmd:
-            return
-        self.terminal.append(f"\nroot@nscs-audit:~$ {cmd}", "prompt")
-        dispatch = {
-            "1": self._run_hardware, "2": self._run_software,
-            "3": self._run_reports,  "4": self._run_email,
-            "5": self._run_cron,     "6": self._run_remote,
-            "10": self._run_help,    "help": self._run_help,
-            "0": self._on_close,     "exit": self._on_close,
-            "clear": self.terminal.clear,
-        }
-        if cmd.lower() == "whoami":
-            self.terminal.append("root", "ok")
-        elif cmd.lower() in ("uname -a", "uname"):
-            self.terminal.append(f"Linux {os.uname().nodename} {os.uname().release} #1 SMP x86_64 GNU/Linux", "ok")
-        elif cmd.lower() == "ls modules/":
-            if MODULES_DIR.exists():
-                for f in sorted(MODULES_DIR.glob("*.sh")):
-                    self.terminal.append(f"  -rwxr-xr-x  {f.name}", "ok")
-            else:
-                self.terminal.append(f"  ls: {MODULES_DIR}: No such directory", "warn")
-        elif cmd in dispatch:
-            dispatch[cmd]()
-        else:
-            self.terminal.append(f"  bash: {cmd}: command not found", "err")
-            self.terminal.append("  Hint: try 1-6, 10, help, clear, exit, whoami, uname -a, ls modules/", "dim")
-
-    # ── Close ──────────────────────────────────────────────────────────────
-
+    # ══════════════════════════════════════════════════════════════════════
+    #  Shutdown  — mirrors main_menu.sh quit block
+    # ══════════════════════════════════════════════════════════════════════
     def _on_close(self):
-        self.matrix.stop()
-        if self._clock_after:
-            try: self.after_cancel(self._clock_after)
+        self._matrix.stop()
+        if self._clock_job:
+            try: self.after_cancel(self._clock_job)
             except Exception: pass
+
         self.terminal.clear()
-        self.terminal.append("▶ SHUTDOWN SEQUENCE", "head")
-        self.terminal.append("─" * 40, "dim")
-        msgs = ["Flushing log buffers...", "Closing module handles...",
-                "Stopping background services...", "Saving session state...",
-                "Goodbye."]
+        self.terminal.write("▶ SHUTDOWN SEQUENCE", "head")
+        self.terminal.write("─" * 40, "dim")
+        msgs = [
+            "Flushing log buffers...",
+            "Closing module handles...",
+            "Stopping background services...",
+            "Saving session state...",
+            "Goodbye.",
+        ]
         for m in msgs:
-            self.terminal.append(f"  {m}", "dim")
+            self.terminal.write(f"  {m}", "dim")
             self.update()
-            time.sleep(0.2)
-        self.after(400, self.destroy)
+            time.sleep(0.22)
+        self.after(500, self.destroy)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  Entry point
+#  Entry Point
 # ══════════════════════════════════════════════════════════════════════════════
-
 if __name__ == "__main__":
     app = NSCSApp()
     app.mainloop()
